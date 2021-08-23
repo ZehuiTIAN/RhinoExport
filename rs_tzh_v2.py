@@ -79,6 +79,16 @@ class Area:
         self.m_joint_count=joint_count
         self.m_joints=joints
         self.m_GUID=GUID
+        self.m_CentroidX=0
+        self.m_CentroidY=0
+        self.m_CentroidZ=0
+        for j in self.m_joints:
+            self.m_CentroidX+=j.m_X
+            self.m_CentroidY+=j.m_Y
+            self.m_CentroidZ+=j.m_Z
+        self.m_CentroidX=self.m_CentroidX/float(joint_count)
+        self.m_CentroidY=self.m_CentroidY/float(joint_count)
+        self.m_CentroidZ=self.m_CentroidZ/float(joint_count)
         
 class ModelInfo:
     def __init__(self):
@@ -98,10 +108,21 @@ class ModelInfo:
     
     def set_data(self):
         objectIds = rs.GetObjects("Select")
+        print(len(objectIds))
         if objectIds is None: return
         j_n=0
         f_n=0
         a_n=0
+        max_j_n=0
+        max_f_n=0
+        max_a_n=0
+        if (rs.GetDocumentData("s2k_Joint_original_number","max_number")):
+            max_j_n=int(rs.GetDocumentData("s2k_Joint_original_number","max_number"))
+        if (rs.GetDocumentData("s2k_Frame_original_number","max_number")):
+            max_f_n=int(rs.GetDocumentData("s2k_Frame_original_number","max_number"))
+        if (rs.GetDocumentData("s2k_Area_original_number","max_number")):
+            max_a_n=int(rs.GetDocumentData("s2k_Area_original_number","max_number"))
+            
         for objectId in objectIds:
             # 将端点存入字典,键类型为代表坐标的三维元组，值类型为joint
             #如果类型为4（Curve）
@@ -111,7 +132,11 @@ class ModelInfo:
                 if self.m_joints_dict.has_key(start_coord):
                     start_joint=self.m_joints_dict[start_coord]
                 else:
-                    j_n+=1
+                    if(rs.GetDocumentData("s2k_Joint_original_number","(%.11f,%.11f,%.11f)"%(start_x,start_y,start_z))):
+                        j_n=rs.GetDocumentData("s2k_Joint_original_number","(%.11f,%.11f,%.11f)"%(start_x,start_y,start_z))
+                    else:
+                        max_j_n+=1
+                        j_n=max_j_n
                     start_joint=Joint(j_n,start_x,start_y,start_z)
                     self.m_joints_dict[start_coord]=start_joint
                 end_x,end_y,end_z=rs.CurveEndPoint(objectId)
@@ -119,11 +144,19 @@ class ModelInfo:
                 if self.m_joints_dict.has_key(end_coord):
                     end_joint=self.m_joints_dict[end_coord]
                 else:
-                    j_n+=1
+                    if(rs.GetDocumentData("s2k_Joint_original_number","(%.11f,%.11f,%.11f)"%(end_x,end_y,end_z))):
+                        j_n=rs.GetDocumentData("s2k_Joint_original_number","(%.11f,%.11f,%.11f)"%(end_x,end_y,end_z))
+                    else:
+                        max_j_n+=1
+                        j_n=max_j_n
                     end_joint=Joint(j_n,end_x,end_y,end_z)
                     self.m_joints_dict[end_coord]=end_joint
                 # 将杆件存入列表
-                f_n+=1
+                if(rs.GetUserText(objectId,"s2k_original_number")):
+                    f_n=rs.GetUserText(objectId,"s2k_original_number")
+                else:
+                    max_f_n+=1
+                    f_n=max_f_n
                 frame=Frame(f_n,start_joint,end_joint,objectId)
                 self.m_frames.append(frame)
                 self.m_joints_dict[start_coord].m_Frames.append(frame)
@@ -132,15 +165,39 @@ class ModelInfo:
             elif rs.ObjectType(objectId)==8:
                 area_joints=[]
                 points=rs.SurfacePoints(objectId)
-                for pt in points:
-                    if self.m_joints_dict.has_key(pt):
-                        area_joints.append(self.m_joints_dict[pt])
-                    else:
-                        j_n+=1
-                        tmp_j=Joint(j_n,pt[0],pt[1],pt[2])
-                        self.m_joints_dict[pt]=tmp_j
-                        area_joints.append(tmp_j)
-                a_n+=1
+                if(len(points)>4)|(len(points)<3):
+                    continue
+                elif (len(points)==3):
+                    for pt in points:
+                        x,y,z=pt
+                        coord=(x,y,z)
+                        if self.m_joints_dict.has_key(coord):
+                            area_joints.append(self.m_joints_dict[coord])
+                        else:
+                            if(rs.GetDocumentData("s2k_Joint_original_number","(%.11f,%.11f,%.11f)"%(x,y,z))):
+                                j_n=rs.GetDocumentData("s2k_Joint_original_number","(%.11f,%.11f,%.11f)"%(x,y,z))
+                            else:
+                                max_j_n+=1
+                                j_n=max_j_n
+                            tmp_j=Joint(j_n,x,y,z)
+                            self.m_joints_dict[coord]=tmp_j
+                            area_joints.append(tmp_j)
+                else:
+                    for i in [0,1,3,2]:
+                        x,y,z=points[i]
+                        coord=(x,y,z)
+                        if self.m_joints_dict.has_key(coord):
+                            area_joints.append(self.m_joints_dict[coord])
+                        else:
+                            j_n+=1
+                            tmp_j=Joint(j_n,x,y,z)
+                            self.m_joints_dict[coord]=tmp_j
+                            area_joints.append(tmp_j)
+                if(rs.GetUserText(objectId,"s2k_original_number")):
+                    a_n=rs.GetUserText(objectId,"s2k_original_number")
+                else:
+                    max_a_n+=1
+                    a_n=max_a_n
                 j_c=len(area_joints)
                 area=Area(a_n,j_c,area_joints,objectId)
                 self.m_areas.append(area)
@@ -166,7 +223,6 @@ class ModelInfo:
     
         #open a new file
         file = open( filename, "w" )
-    
         # file path
         file.write("File %s was saved on m/d/yy at h:mm:ss\n"%filename)
         file.write("\n")
@@ -195,6 +251,8 @@ class ModelInfo:
     
         #table CONNECTIVITY - FRAME
         file.write("TABLE:  \"CONNECTIVITY - FRAME\"\n")
+        print("joints_count=%s"%len(self.m_joints_dict))
+        print("frames_count=%s"%len(self.m_frames))
         for frame in self.m_frames:
             file.write("   Frame=%s"%frame.m_number)
             file.write("   JointI=%s   JointJ=%s"%(frame.m_start_joint.m_number,frame.m_end_joint.m_number))
@@ -208,31 +266,54 @@ class ModelInfo:
         #table CONNECTIVITY - AREA
         file.write("TABLE:  \"CONNECTIVITY - AREA\"\n")
         for area in self.m_areas:
-            file.write("   Area=%s"%area.m_number)
+            file.write("   Area=%s"%(area.m_number))
             file.write("   NumJoints=%s"%area.m_joint_count)
             for i in range(area.m_joint_count):
                 file.write("   Joint%s=%s"%(i+1,area.m_joints[i].m_number))
-            file.write("   GUID=%s"%area.m_GUID)
+            file.write("   Perimeter=12.0551750201988   AreaArea=8.11035004039763   Volume=0.811035004039762")
+            file.write("   CentroidX=%s   CentroidY=%s   CentroidZ=%s   GUID=%s"%(area.m_CentroidX,area.m_CentroidY,area.m_CentroidZ,area.m_GUID))
             file.write("\n")
         file.write("\n")
         
         for nm in self.m_s2k_frame_table_names:
             file.write(nm)
+            #print(nm)
             for fm in self.m_frames:
-                if rs.GetUserText(fm.m_GUID,nm) is not None:
-                    file.write(rs.GetUserText(fm.m_GUID,nm))
+                if rs.GetUserText(fm.m_GUID,nm) is None:
+                    continue
+                #print(rs.GetUserText(fm.m_GUID,nm))
+                str_tmp=rs.GetUserText(fm.m_GUID,nm)
+                l=str_tmp.split()
+                res=re.search("Frame=",str_tmp)
+                if (len(l)<1) | (res is None):
+                    continue
+                a=str(fm.m_number)
+                file.write(str_tmp[:res.end()]+a+str_tmp[res.end()+len(l[0])-6:])
             file.write("\n")
         
         for nm in self.m_s2k_area_table_names:
             file.write(nm)
+            #print(nm)
             for ar in self.m_areas:
-                if rs.GetUserText(ar.m_GUID,nm) is not None:
-                    file.write(rs.GetUserText(ar.m_GUID,nm))
+                if rs.GetUserText(ar.m_GUID,nm) is None:
+                    continue
+                str_tmp=rs.GetUserText(ar.m_GUID,nm)
+                l=str_tmp.split()
+                res=re.search("Area=",str_tmp)
+                if (len(l)<1) | (res is None):
+                    continue
+                a=str(ar.m_number)
+                file.write(str_tmp[:res.end()]+a+str_tmp[res.end()+len(l[0])-5:])
             file.write("\n")
         
         file.write("END TABLE DATA")
         #close the file
         file.close()
+        print(self.m_s2k_frame_table_names)
+        print("\n")
+        print(self.m_s2k_area_table_names)
+        print("\n")
+        print(self.m_s2k_docu_table_names)
     
     def import_s2k(self):
         #prompt the user for a file to import
@@ -260,11 +341,15 @@ class ModelInfo:
                 continue
             if (len(ls)>=3) and (ls[0]=="END") and (ls[1]=="TABLE") and (ls[2]=="DATA"):
                 break
+                
             if (ls[-1]=="_"):
                 unfinished_line=whole_line
+                unfinished_line=unfinished_line.replace("_","")
+                unfinished_line=unfinished_line.replace("\n","")
                 continue
             else:
                 unfinished_line=""
+                
             #如果是表名行
             if ls[0]=="TABLE:":
                 #三张特殊表格
@@ -309,7 +394,7 @@ class ModelInfo:
                             rs.SetDocumentData("s2k_frame_table_names",str(table)," ")
                         frame_text[table][tmp[1]]=whole_line
                     #是跟随每个Area的text，存入一个中间结构area_text
-                    if len(tmp)>=2 and tmp[0]=="Area":
+                    elif len(tmp)>=2 and tmp[0]=="Area":
                         if not area_text.has_key(table):
                             tmp_dic={}
                             area_text[table]=tmp_dic
@@ -326,7 +411,9 @@ class ModelInfo:
         frames_dict={} #以编号为key，以GUID为value
         areas_dict={}  #以编号为key，以GUID为value
         #生成joints_dict
+        max_number=0       
         for i in joint_coordinates:
+
             number=-1
             X=0.0
             Y=0.0
@@ -335,15 +422,21 @@ class ModelInfo:
                 l=j.split("=")
                 if (len(l)==2) and l[0]=="Joint":
                     number=l[1]
+                    if(int(number)>int(max_number)):
+                        max_number=number
                 elif (len(l)==2) and l[0]=="XorR":
-                    X=l[1]
+                    X=float(l[1])
                 elif (len(l)==2) and l[0]=="Y":
-                    Y=l[1]
+                    Y=float(l[1])
                 elif (len(l)==2) and l[0]=="Z":
-                    Z=l[1]
+                    Z=float(l[1])
             if number!=-1:
                 joints_dict[number]=(X,Y,Z)
+                rs.SetDocumentData("s2k_Joint_original_number","(%.11f,%.11f,%.11f)"%(X,Y,Z),number)
+        rs.SetDocumentData("s2k_Joint_original_number","max_number",str(max_number))
         #生成frames_dict
+        #print(len(connectivity_frame))
+        max_f_n=0
         for i in connectivity_frame:
             jointi=-1
             jointj=-1
@@ -352,6 +445,8 @@ class ModelInfo:
                 l=j.split("=")
                 if (len(l)==2) and l[0]=="Frame":
                     frame_n=l[1]
+                    if(int(frame_n)>max_f_n):
+                        max_f_n=int(frame_n)
                 elif (len(l)==2) and l[0]=="JointI":
                     if joints_dict.has_key(l[1]):
                         jointi=joints_dict[l[1]]
@@ -364,11 +459,14 @@ class ModelInfo:
                         continue
             if (jointi!=-1) and (jointj!=-1) and (frame_n!=-1):
                 obj=rs.AddLine(jointi,jointj)
+                rs.SetUserText(obj,"s2k_original_number",frame_n)
                 frames_dict[frame_n]=obj
                 for tb_nm in frame_text.keys():
                     if(frame_text[tb_nm].has_key(frame_n)):
                         rs.SetUserText(obj,tb_nm,frame_text[tb_nm][frame_n])
+        rs.SetDocumentData("s2k_Frame_original_number","max_number",str(max_f_n))
         #生成areas_dict
+        max_a_n=0
         for i in connectivity_area:
             points=[]
             area_n=-1
@@ -376,6 +474,8 @@ class ModelInfo:
                 l=j.split("=")
                 if (len(l)==2) and l[0]=="Area":
                     area_n=l[1]
+                    if(int(area_n)>max_a_n):
+                        max_a_n=int(area_n)
                 elif (len(l)==2) and re.match("Joint",l[0]):
                     if joints_dict.has_key(l[1]):
                         points.append(joints_dict[l[1]])
@@ -383,11 +483,13 @@ class ModelInfo:
                         continue
             if len(points)>=3 and (area_n!=-1):
                 obj=rs.AddSrfPt(points)
+                rs.SetUserText(obj,"s2k_original_number",area_n)
                 areas_dict[area_n]=obj
                 for tb_nm in area_text.keys():
                     if(area_text[tb_nm].has_key(area_n)):
                         rs.SetUserText(obj,tb_nm,area_text[tb_nm][area_n])
-    
+        rs.SetDocumentData("s2k_Area_original_number","max_number",str(max_a_n))
+        
     def export_mgt(self):
         "Export to a mgt text file"
         self.set_data()
