@@ -144,8 +144,10 @@ class ModelInfo:
                 if self.m_joints_dict.has_key(end_coord):
                     end_joint=self.m_joints_dict[end_coord]
                 else:
+                    #如果是从s2k中导入的，就使用原来的编号
                     if(rs.GetDocumentData("s2k_Joint_original_number","(%.11f,%.11f,%.11f)"%(end_x,end_y,end_z))):
                         j_n=rs.GetDocumentData("s2k_Joint_original_number","(%.11f,%.11f,%.11f)"%(end_x,end_y,end_z))
+                    #否则使用新编号，最大编号加一
                     else:
                         max_j_n+=1
                         j_n=max_j_n
@@ -189,7 +191,11 @@ class ModelInfo:
                         if self.m_joints_dict.has_key(coord):
                             area_joints.append(self.m_joints_dict[coord])
                         else:
-                            j_n+=1
+                            if(rs.GetDocumentData("s2k_Joint_original_number","(%.11f,%.11f,%.11f)"%(x,y,z))):
+                                j_n=rs.GetDocumentData("s2k_Joint_original_number","(%.11f,%.11f,%.11f)"%(x,y,z))
+                            else:
+                                max_j_n+=1
+                                j_n=max_j_n
                             tmp_j=Joint(j_n,x,y,z)
                             self.m_joints_dict[coord]=tmp_j
                             area_joints.append(tmp_j)
@@ -524,18 +530,46 @@ class ModelInfo:
         file.write("; iEL, TYPE, iMAT, iPRO, iN1, iN2, iN3, iN4, iN5, iN6, iN7, iN8     ; Solid  Element\n")
         for frame in self.m_frames:
             if rs.GetUserText(frame.m_GUID,"mgt_element") is not None:
-                str=rs.GetUserText(frame.m_GUID,"mgt_element")
-                ls=str.split(",")
+                str_tmp=rs.GetUserText(frame.m_GUID,"mgt_element")
+                ls=str_tmp.split(",")
                 if len(ls)>=6:
                     ls[0]="  %s"%frame.m_number
                     ls[4]="   %s"%frame.m_start_joint.m_number
                     ls[5]="   %s"%frame.m_end_joint.m_number
+                    ls[1]=" TRUSS "
+                    if rs.GetUserText(frame.m_GUID,"mgt_type") is not None:
+                        ls[1]=rs.GetUserText(frame.m_GUID,"mgt_type")
                 for i in range(len(ls)):
                     file.write(ls[i])
                     if(i!=len(ls)-1):
                         file.write(",")
             else:
-                file.write("  %s, TRUSS ,    1,     1,   %s,   %s,     0,     0"%(frame.m_number,frame.m_start_joint.m_number,frame.m_end_joint.m_number))
+                file.write("  %s, TRUSS ,    0,     0,   %s,   %s,     0,     0"%(frame.m_number,frame.m_start_joint.m_number,frame.m_end_joint.m_number))
+            file.write("\n")
+        for area in self.m_areas:
+            if rs.GetUserText(area.m_GUID,"mgt_element") is not None:
+                str_tmp=rs.GetUserText(area.m_GUID,"mgt_element")
+            else:
+                str_tmp="  1471, PLATE ,    0,     0,   298,   278,   304,     0,     0,     0"
+                ls=str_tmp.split(",")
+            
+            if (len(ls)>=8) & (len(area.m_joints)>=3):
+                ls[0]="  %s"%area.m_number
+                ls[4]="   %s"%area.m_joints[0].m_number
+                ls[5]="   %s"%area.m_joints[1].m_number
+                ls[6]="   %s"%area.m_joints[2].m_number
+                if len(area.m_joints)==3:
+                    ls[7]="   0"
+                else:
+                    ls[7]="   %s"%area.m_joints[3].m_number
+                ls[1]=" PLATE "
+                if rs.GetUserText(area.m_GUID,"mgt_type") is not None:
+                    ls[1]=rs.GetUserText(area.m_GUID,"mgt_type")
+                    
+            for i in range(len(ls)):
+                file.write(ls[i])
+                if(i!=len(ls)-1):
+                    file.write(",")
             file.write("\n")
         file.write("\n")
     
@@ -556,55 +590,73 @@ class ModelInfo:
         
         table=""
         joints_dict={} #以编号为key，以坐标元组为value
-        trusses=[] #中间存储形式
-        trusses_dict={}#以编号为key，以GUID为value
+        frames=[] #中间存储形式,TRUSS BEAM TENSTR COMPTR都存
+        frames_dict={}#以编号为key，以GUID为value，TRUSS BEAM TENSTR COMPTR都存
+        planars=[]
+        planars_dict={}
         for line in file:
             #去掉“;”后的注释部分
             ls=line.split(";")
-            str=ls[0]
+            str_tmp=ls[0]
                 
             #如果当前行是表名行，判断是哪个表名行
-            if re.search("\\*",str) is not None:
+            if re.search("\\*",str_tmp) is not None:
                 table=""
-                if re.search("\\*NODE",str) is not None:
+                if re.search("\\*NODE",str_tmp) is not None:
                     table="NODE"
-                elif re.search("\\*ELEMENT",str) is not None:
+                elif re.search("\\*ELEMENT",str_tmp) is not None:
                     table="ELEMENT"
-                elif re.search("\\*ENDDATA",str) is not None:
+                elif re.search("\\*ENDDATA",str_tmp) is not None:
                     break
                 else:
                     table=line
                 continue
                 
             #如果当前行不是表名行
-            #生成joints_dict和trusses
+            #生成joints_dict和frames
             #将document data直接存入
             if table=="":
                 continue
             elif table=="NODE":
-                str.replace(" ","")
-                ls=str.split(",")
+                str_tmp.replace(" ","")
+                ls=str_tmp.split(",")
                 if len(ls)>=4:
                     joints_dict[int(ls[0])]=(float(ls[1]),float(ls[2]),float(ls[3]))
             elif table=="ELEMENT":
-                ls=str.split(",")
-                if (len(ls)>=8) and (ls[1].replace(" ","")=="TRUSS"):
-                    trusses.append(line)
+                ls=str_tmp.split(",")
+                if (len(ls)>=6) and (ls[1].replace(" ","")=="TRUSS" or ls[1].replace(" ","")=="BEAM" or ls[1].replace(" ","")=="TENSTR" or ls[1].replace(" ","")=="COMPTR"):
+                    frames.append(line)
+                elif (len(ls)>=8) and (ls[1].replace(" ","")=="PLATE" or ls[1].replace(" ","")=="PLSTRS" or ls[1].replace(" ","")=="PLSTRN" or ls[1].replace(" ","")=="AXISYM"):
+                    planars.append(line)
             else:
                 rs.SetDocumentData("mgt_docu_table_names",table," ")
                 rs.SetDocumentData(table,line," ")
 
         file.close()
-        #print(trusses)
-        #print(joints_dict)
-        #生成trusses_dict并在rhino中生成模型
-        for text in trusses:
+        #生成frames_dict和planars_dict并在rhino中生成模型
+        for text in frames:
             ls=text.split(",")
             if len(ls)<6: continue
             if joints_dict.has_key(int(ls[4])) and joints_dict.has_key(int(ls[5])):
                 obj=rs.AddLine(joints_dict[int(ls[4])],joints_dict[int(ls[5])])
                 rs.SetUserText(obj,"mgt_element",text)
-                trusses_dict[int(ls[0])]=obj
+                rs.SetUserText(obj,"mgt_type",ls[1])#ls[1]带空格
+                frames_dict[int(ls[0])]=obj
+        for text in planars:
+            ls=text.split(",")
+            if len(ls)<8: continue
+            if joints_dict.has_key(int(ls[4])) and joints_dict.has_key(int(ls[5])) and joints_dict.has_key(int(ls[6])):
+                tmp_pts=[]
+                tmp_pts.append(joints_dict[int(ls[4])])
+                tmp_pts.append(joints_dict[int(ls[5])])
+                tmp_pts.append(joints_dict[int(ls[6])])
+                if int(ls[7])!=0 & joints_dict.has_key(int(ls[7])):
+                    tmp_pts.append(joints_dict[int(ls[7])])
+                    
+                obj=rs.AddSrfPt(tmp_pts)
+                rs.SetUserText(obj,"mgt_element",text)
+                rs.SetUserText(obj,"mgt_type",ls[1])#ls[1]带空格
+                planars_dict[int(ls[0])]=obj
             
 if( __name__ == "__main__" ):
     model=ModelInfo()
