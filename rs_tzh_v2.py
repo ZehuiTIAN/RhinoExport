@@ -233,6 +233,15 @@ class ModelInfo:
         file.write("File %s was saved on m/d/yy at h:mm:ss\n"%filename)
         file.write("\n")
         
+        #table program control
+        file.write("TABLE:  \"PROGRAM CONTROL\"\n")
+        if rs.GetDocumentData("TABLE:  \"PROGRAM CONTROL\"\n"):
+            for entry in rs.GetDocumentData("TABLE:  \"PROGRAM CONTROL\"\n"):
+                file.write(entry)
+        else:
+            file.write("   ProgramName=SAP2000   Version=21.0.2   ProgLevel=Ultimate   LicenseNum=0   LicenseOS=Yes   LicenseSC=Yes   LicenseHT=No   CurrUnits=\"KN, m, C\"   SteelCode=\"Chinese 2010\"   ConcCode=\"Chinese 2010\"   AlumCode=\"AA-ASD 2000\"   ColdCode=AISI-ASD96   RegenHinge=Yes")
+        file.write("\n")
+        
         for nm in self.m_s2k_docu_table_names:
             if(rs.GetDocumentData(nm)):
                 file.write(nm)
@@ -409,7 +418,8 @@ class ModelInfo:
                             
                     #是document data 直接存
                     else:
-                        rs.SetDocumentData("s2k_docu_table_names",str(table)," ")
+                        if (table!="TABLE:  \"PROGRAM CONTROL\"\n"):
+                            rs.SetDocumentData("s2k_docu_table_names",str(table)," ")
                         rs.SetDocumentData(table,whole_line," ")
         file.close()
     
@@ -505,7 +515,7 @@ class ModelInfo:
         if not filename: return
     
         #open a new file
-        file = open( filename, "w" )
+        file = open( filename, "w")
         #document data中的表格
         for nm in self.m_mgt_docu_table_names:
             if(rs.GetDocumentData(nm)):
@@ -544,13 +554,13 @@ class ModelInfo:
                     if(i!=len(ls)-1):
                         file.write(",")
             else:
-                file.write("  %s, TRUSS ,    0,     0,   %s,   %s,     0,     0"%(frame.m_number,frame.m_start_joint.m_number,frame.m_end_joint.m_number))
+                file.write("  %s, TRUSS ,    1,     1,   %s,   %s,     0,     0"%(frame.m_number,frame.m_start_joint.m_number,frame.m_end_joint.m_number))
             file.write("\n")
         for area in self.m_areas:
             if rs.GetUserText(area.m_GUID,"mgt_element") is not None:
                 str_tmp=rs.GetUserText(area.m_GUID,"mgt_element")
             else:
-                str_tmp="  1471, PLATE ,    0,     0,   298,   278,   304,     0,     0,     0"
+                str_tmp="  1471, PLATE ,    1,     1,   298,   278,   304,     0,     0,     0"
                 ls=str_tmp.split(",")
             
             if (len(ls)>=8) & (len(area.m_joints)>=3):
@@ -662,6 +672,6 @@ if( __name__ == "__main__" ):
     model=ModelInfo()
     
     #model.import_s2k()
-    model.export_s2k()
+    #model.export_s2k()
     #model.import_mgt()
-    #model.export_mgt()
+    model.export_mgt()
