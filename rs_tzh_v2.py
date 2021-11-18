@@ -1,5 +1,4 @@
 #encoding=utf-8
-
 import rhinoscriptsyntax as rs
 from System.Windows.Forms import Form, DialogResult, Label, Button, TextBox
 from System.Drawing import Point, Size
@@ -13,7 +12,7 @@ reload(sys)
 sys.setdefaultencoding('utf-8')
 
 class Joint:
-    def __init__(self,number,X,Y,Z):
+    def __init__(self,number,X,Y,Z,GUID=""):
         self.m_number=number
         self.m_X=float(X)
         self.m_Y=float(Y)
@@ -21,6 +20,7 @@ class Joint:
         self.m_GlobalX=float(X)
         self.m_GlobalY=float(Y)
         self.m_GlobalZ=float(Z)
+        self.m_GUID=GUID
         # 初始化时不从外部赋值的属性
         self.m_CoordSys="GLOBAL"
         self.m_CoordType="Cartesian"
@@ -29,7 +29,7 @@ class Joint:
     
     #计算该节点出发的杆件间的最大最小夹角
     def cal_max_min_frame_angle(self):
-        if self.Frames is None:
+        if self.m_Frames is None:
             print("No Frames!")
             return -1
         else:
@@ -40,15 +40,15 @@ class Joint:
             min_frame1=self.m_Frames[0]
             min_frame2=self.m_Frames[0]
             for i in range(len(self.m_Frames)-1):
-                if self.m_Frames[i].start_joint!=self:
-                    vec1=-self.m_Frames[i].vec
+                if self.m_Frames[i].m_start_joint!=self:
+                    vec1=-self.m_Frames[i].m_vector
                 else:
-                    vec1=self.m_Frames[i].vec
+                    vec1=self.m_Frames[i].m_vector
                 for j in range(i+1,len(self.m_Frames)):
-                    if self.m_Frames[j].start_joint!=self:
-                        vec2=-self.Frames[j].vec
+                    if self.m_Frames[j].m_start_joint!=self:
+                        vec2=-self.m_Frames[j].m_vector
                     else:
-                        vec2=self.m_Frames[j].vec
+                        vec2=self.m_Frames[j].m_vector
                     tmp_angle=rs.VectorAngle(vec1,vec2)
                     if tmp_angle>max_angle:
                         max_angle=tmp_angle
@@ -72,6 +72,7 @@ class Frame:
         self.m_Length=((start_joint.m_GlobalX+end_joint.m_GlobalX)**2+(start_joint.m_GlobalY+end_joint.m_GlobalY)**2+(start_joint.m_GlobalZ+end_joint.m_GlobalZ)**2)**0.5
         self.m_GUID=GUID
         self.m_IsCurved = "No"
+        self.m_layer="other"
 
 class Area:
     def __init__(self,number,joint_count,joints,GUID):
@@ -89,26 +90,255 @@ class Area:
         self.m_CentroidX=self.m_CentroidX/float(joint_count)
         self.m_CentroidY=self.m_CentroidY/float(joint_count)
         self.m_CentroidZ=self.m_CentroidZ/float(joint_count)
+        self.m_layer="other"
+
+class DisplayGridInfoForm(Form):
+    # build all of the controls in the constructor
+    def __init__(self, max_angle, min_angle, max_length):
+        offset = 10
+        self.Text = "网格质量参数"
+    
+        max_angle_label = Label(Text="相邻杆件最大夹角 = %s"%max_angle, AutoSize=True)
+        self.Controls.Add(max_angle_label)
+        width = max_angle_label.Right
+        pt = Point(max_angle_label.Left,max_angle_label.Bottom + offset)
+    
+        min_angle_label = Label(Text="相邻杆件最小夹角 = %s"%min_angle, AutoSize=True)
+        min_angle_label.Location=pt
+        self.Controls.Add(min_angle_label)
+        if( min_angle_label.Right > width ):
+            width = min_angle_label.Right
+        pt = Point(min_angle_label.Left,min_angle_label.Bottom + offset)
+    
+        max_length_label = Label(Text="最长杆件长度 = %s"%max_length, AutoSize=True)
+        max_length_label.Location=pt
+        self.Controls.Add(max_length_label)
+        if( max_length_label.Right > width ):
+            width = max_length_label.Right
+        pt = Point(max_length_label.Left,max_length_label.Bottom + offset)
+    
+        buttonApply = Button(Text="显示节点", DialogResult=DialogResult.OK)
+        buttonApply.Location = pt
+        self.Controls.Add(buttonApply)
+        pt.X = buttonApply.Right + offset
+        buttonCancel = Button(Text="取消", DialogResult=DialogResult.Cancel)
+        buttonCancel.Location = pt
+        self.Controls.Add(buttonCancel)
+        if( buttonCancel.Right > width ):
+            width = buttonCancel.Right
+        self.ClientSize = Size(width, buttonCancel.Bottom)
+        self.AcceptButton = buttonApply
+        self.CancelButton = buttonCancel
         
+class DisplayObjectInfoForm(Form):
+    # build all of the controls in the constructor
+    def __init__(self,obj):
+        offset = 10
+        self.Text = "UserText"
+        
+        max_angle_label = Label(Text="相邻杆件最大夹角 = %s"%max_angle, AutoSize=True)
+        self.Controls.Add(max_angle_label)
+        width = max_angle_label.Right
+        pt = Point(max_angle_label.Left,max_angle_label.Bottom + offset)
+    
+        min_angle_label = Label(Text="相邻杆件最小夹角 = %s"%min_angle, AutoSize=True)
+        min_angle_label.Location=pt
+        self.Controls.Add(min_angle_label)
+        if( min_angle_label.Right > width ):
+            width = min_angle_label.Right
+        pt = Point(min_angle_label.Left,min_angle_label.Bottom + offset)
+    
+        max_length_label = Label(Text="最长杆件长度 = %s"%max_length, AutoSize=True)
+        max_length_label.Location=pt
+        self.Controls.Add(max_length_label)
+        if( max_length_label.Right > width ):
+            width = max_length_label.Right
+        pt = Point(max_length_label.Left,max_length_label.Bottom + offset)
+    
+        buttonApply = Button(Text="显示节点", DialogResult=DialogResult.OK)
+        buttonApply.Location = pt
+        self.Controls.Add(buttonApply)
+        pt.X = buttonApply.Right + offset
+        buttonCancel = Button(Text="取消", DialogResult=DialogResult.Cancel)
+        buttonCancel.Location = pt
+        self.Controls.Add(buttonCancel)
+        if( buttonCancel.Right > width ):
+            width = buttonCancel.Right
+        self.ClientSize = Size(width, buttonCancel.Bottom)
+        self.AcceptButton = buttonApply
+        self.CancelButton = buttonCancel
+
 class ModelInfo:
     def __init__(self):
         #构件数据：object data
         self.m_frames=[]
         self.m_areas=[]
-        self.m_joints_dict={}
+        self.m_joints_dict={}#以坐标为kee，Joint对象为value
        
         #以下属性表名从文本文件中整行读取，不进行去空格和去换行符处理
         #导出时也直接照读取进来的原样打印不用加换行符
+        self.m_s2k_joint_table_names=[]
         self.m_s2k_frame_table_names=[]#s2k中每根杆件对应的属性表名
         self.m_s2k_area_table_names=[]#s2k中每根杆件对应的属性表名
         self.m_mgt_obj_table_names=[]#mgt中每根杆件对应的属性表名
         self.m_s2k_docu_table_names=[]#s2k中其他属性表名
         self.m_mgt_docu_table_names=[]#mgt中其他属性表名
         
-    
-    def set_data(self):
+    def set_data_mgt(self):
         objectIds = rs.GetObjects("Select")
-        print(len(objectIds))
+        #print(len(objectIds))
+        if objectIds is None: return
+        j_n=0
+        e_n=0
+        max_j_n=0
+        max_e_n=0
+        if (rs.GetDocumentData("mgt_Node_original_number","max_number")):
+            max_j_n=int(rs.GetDocumentData("mgt_Node_original_number","max_number"))
+        if (rs.GetDocumentData("mgt_Element_original_number","max_number")):
+            max_e_n=int(rs.GetDocumentData("mgt_Element_original_number","max_number"))
+            
+        for objectId in objectIds:
+            # 将端点存入字典,键类型为代表坐标的三维元组，值类型为joint
+            #如果类型为4（Curve）
+            if rs.ObjectType(objectId)==4:
+                start_x,start_y,start_z=rs.CurveStartPoint(objectId)
+                start_coord=(start_x,start_y,start_z)
+                if self.m_joints_dict.has_key(start_coord):
+                    start_joint=self.m_joints_dict[start_coord]
+                else:
+                    #if(rs.GetDocumentData("mgt_Node_original_number","(%.11f,%.11f,%.11f)"%(start_x,start_y,start_z))):
+                        #j_n=rs.GetDocumentData("mgt_Node_original_number","(%.11f,%.11f,%.11f)"%(start_x,start_y,start_z))
+                    if rs.GetUserText(objectId,"start_point_guid"):
+                        j_n=int(rs.GetUserText(rs.GetUserText(objectId,"start_point_guid"),"mgt_original_number"))
+                    else:
+                        max_j_n+=1
+                        j_n=max_j_n
+                    start_joint=Joint(j_n,start_x,start_y,start_z)
+                    self.m_joints_dict[start_coord]=start_joint
+                end_x,end_y,end_z=rs.CurveEndPoint(objectId)
+                end_coord=(end_x,end_y,end_z)
+                if self.m_joints_dict.has_key(end_coord):
+                    end_joint=self.m_joints_dict[end_coord]
+                else:
+                    #如果是从mgt中导入的，就使用原来的编号
+                    #if(rs.GetDocumentData("mgt_Node_original_number","(%.11f,%.11f,%.11f)"%(end_x,end_y,end_z))):
+                        #j_n=rs.GetDocumentData("mgt_Node_original_number","(%.11f,%.11f,%.11f)"%(end_x,end_y,end_z))
+                    if rs.GetUserText(objectId,"end_point_guid"):
+                        j_n=int(rs.GetUserText(rs.GetUserText(objectId,"end_point_guid"),"mgt_original_number"))
+                    #否则使用新编号，最大编号加一
+                    else:
+                        max_j_n+=1
+                        j_n=max_j_n
+                    end_joint=Joint(j_n,end_x,end_y,end_z)
+                    self.m_joints_dict[end_coord]=end_joint
+                # 将杆件存入列表
+                if(rs.GetUserText(objectId,"mgt_original_number")):
+                    e_n=int(rs.GetUserText(objectId,"mgt_original_number"))
+                else:
+                    max_e_n+=1
+                    e_n=max_e_n
+                frame=Frame(e_n,start_joint,end_joint,objectId)
+                self.m_frames.append(frame)
+                self.m_joints_dict[start_coord].m_Frames.append(frame)
+                self.m_joints_dict[end_coord].m_Frames.append(frame)
+                #判断是否有s2k section属性，如果没有，将layer name作为section name存入
+                #if (rs.GetUserText(objectId,"s2k_section_layer_name") is None) or (rs.GetUserText(objectId,"s2k_section_layer_name")!=rs.ObjectLayer(objectId)):
+                    #sec_nm=rs.ObjectLayer(objectId)
+                    #rs.SetUserText(objectId,"TABLE:  \"FRAME SECTION ASSIGNMENTS\"\n","   Frame=%s   AutoSelect=N.A.   AnalSect=%s   MatProp=Default\n"%(f_n,sec_nm))
+                    #rs.SetDocumentData("TABLE:  \"FRAME SECTION PROPERTIES 01 - GENERAL\"\n","   SectionName=%s   Shape=\"I/Wide Flange\"   Color=Red\n"%sec_nm,"   SectionName=%s   Shape=\"I/Wide Flange\"   Color=Red\n"%sec_nm)
+                
+            #如果类型为8（Surface）
+            elif rs.ObjectType(objectId)==8:
+                area_joints=[]
+                points=rs.SurfacePoints(objectId)
+                #if(len(points)>4)|(len(points)<3):
+                    #continue
+                #elif (len(points)==3):
+                    #for i in [0,1:
+                        #x,y,z=pt
+                        #coord=(x,y,z)
+                        #if self.m_joints_dict.has_key(coord):
+                            #area_joints.append(self.m_joints_dict[coord])
+                        #else:
+                            #if(rs.GetDocumentData("s2k_Joint_original_number","(%.11f,%.11f,%.11f)"%(x,y,z))):
+                                #j_n=rs.GetDocumentData("s2k_Joint_original_number","(%.11f,%.11f,%.11f)"%(x,y,z))
+                            #else:
+                                #max_j_n+=1
+                                #j_n=max_j_n
+                            #tmp_j=Joint(j_n,x,y,z)
+                            #self.m_joints_dict[coord]=tmp_j
+                            #area_joints.append(tmp_j)
+                            
+                #如果面对象中存有节点对应点对象的GUID列表，则读取原有节点编号
+                if rs.GetUserText(objectId,"point_guids"):
+                    pt_guid_list=rs.GetUserText(objectId,"point_guids").split(",")
+                    for i in range(len(pt_guid_list)):
+                        x,y,z=points[i]
+                        coord=(x,y,z)
+                        if self.m_joints_dict.has_key(coord):
+                            if self.m_joints_dict[coord] not in area_joints:
+                                area_joints.append(self.m_joints_dict[coord])
+                        else:
+                            if rs.GetUserText(pt_guid_list[i],"mgt_original_number"):
+                                j_n=int(rs.GetUserText(pt_guid_list[i],"mgt_original_number"))
+                            else:
+                                max_j_n+=1
+                                j_n=max_j_n
+                            tmp_j=Joint(j_n,x,y,z)
+                            self.m_joints_dict[coord]=tmp_j
+                            if tmp_j not in area_joints:
+                                area_joints.append(tmp_j)
+                #如果面对象中没有存节点对应点对象GUID，则需要新分配节点编号
+                else:
+                    for i in range(len(points)):
+                        x,y,z=points[i]
+                        coord=(x,y,z)
+                        if self.m_joints_dict.has_key(coord):
+                            if self.m_joints_dict[coord] not in area_joints:
+                                area_joints.append(self.m_joints_dict[coord])
+                        else:
+                            max_j_n+=1
+                            j_n=max_j_n
+                            tmp_j=Joint(j_n,x,y,z)
+                            self.m_joints_dict[coord]=tmp_j
+                            if tmp_j not in area_joints:
+                                area_joints.append(tmp_j)
+                                
+                if(rs.GetUserText(objectId,"mgt_original_number")):
+                    e_n=int(rs.GetUserText(objectId,"mgt_original_number"))
+                else:
+                    max_e_n+=1
+                    e_n=max_e_n
+                j_c=len(area_joints)
+                area=Area(e_n,j_c,area_joints,objectId)
+                self.m_areas.append(area)
+                #判断是否有section属性，如果没有，将layer name作为section name存入
+                #if rs.GetUserText(objectId,"TABLE:  \"AREA SECTION ASSIGNMENTS\"\n") is None:
+                    #sec_nm=rs.ObjectLayer(objectId)
+                    #rs.SetUserText(objectId,"TABLE:  \"AREA SECTION ASSIGNMENTS\"\n","   Area=%s   Section=%s   MatProp=Default\n"%(a_n,sec_nm))
+                    #rs.SetDocumentData("TABLE:  \"AREA SECTION PROPERTIES\"\n","   SectionName=%s   AreaType=Shell   Color=Green\n"%sec_nm,"   SectionName=%s   AreaType=Shell   Color=Green\n"%sec_nm)
+            
+        #读取documentdata中存下来的表名
+        #if(rs.GetDocumentData("s2k_frame_table_names")):
+            #rs.SetDocumentData("s2k_frame_table_names","TABLE:  \"FRAME SECTION ASSIGNMENTS\"\n","TABLE:  \"FRAME SECTION ASSIGNMENTS\"\n")
+            #self.m_s2k_frame_table_names=rs.GetDocumentData("s2k_frame_table_names")
+        #if(rs.GetDocumentData("s2k_area_table_names")):
+            #rs.SetDocumentData("s2k_area_table_names","TABLE:  \"AREA SECTION ASSIGNMENTS\"\n","TABLE:  \"AREA SECTION ASSIGNMENTS\"\n")
+            #self.m_s2k_area_table_names=rs.GetDocumentData("s2k_area_table_names")
+        if(rs.GetDocumentData("mgt_obj_table_names")):
+            self.m_mgt_obj_table_names=rs.GetDocumentData("mgt_obj_table_names")
+        #if(rs.GetDocumentData("s2k_docu_table_names")):
+            #rs.SetDocumentData("s2k_docu_table_names","TABLE:  \"AREA SECTION PROPERTIES\"\n","TABLE:  \"AREA SECTION PROPERTIES\"\n")
+            #rs.SetDocumentData("s2k_docu_table_names","TABLE:  \"FRAME SECTION PROPERTIES 01 - GENERAL\"\n","TABLE:  \"FRAME SECTION PROPERTIES 01 - GENERAL\"\n")
+            #self.m_s2k_docu_table_names=rs.GetDocumentData("s2k_docu_table_names")
+        if(rs.GetDocumentData("mgt_docu_table_names")):
+            self.m_mgt_docu_table_names=rs.GetDocumentData("mgt_docu_table_names")
+        #print("Frame_Count=%s"%len(self.m_frames))
+        return
+     
+    def set_data_s2k(self):
+        objectIds = rs.GetObjects("Select")
+        #print(len(objectIds))
         if objectIds is None: return
         j_n=0
         f_n=0
@@ -132,30 +362,50 @@ class ModelInfo:
                 if self.m_joints_dict.has_key(start_coord):
                     start_joint=self.m_joints_dict[start_coord]
                 else:
-                    if(rs.GetDocumentData("s2k_Joint_original_number","(%.11f,%.11f,%.11f)"%(start_x,start_y,start_z))):
-                        j_n=rs.GetDocumentData("s2k_Joint_original_number","(%.11f,%.11f,%.11f)"%(start_x,start_y,start_z))
+                    joint_guid=""
+                    if rs.GetUserText(objectId,"start_point_guid"):
+                        if rs.GetUserText(rs.GetUserText(objectId,"start_point_guid"),"s2k_original_number"):
+                            j_n=int(rs.GetUserText(rs.GetUserText(objectId,"start_point_guid"),"s2k_original_number"))
+                            joint_guid=rs.GetUserText(objectId,"start_point_guid")
+                        else:
+                            max_j_n+=1
+                            j_n=max_j_n
+                    #if(rs.GetDocumentData("s2k_Joint_original_number","(%.11f,%.11f,%.11f)"%(start_x,start_y,start_z))):
+                        #j_n=rs.GetDocumentData("s2k_Joint_original_number","(%.11f,%.11f,%.11f)"%(start_x,start_y,start_z))
                     else:
                         max_j_n+=1
                         j_n=max_j_n
-                    start_joint=Joint(j_n,start_x,start_y,start_z)
+                    start_joint=Joint(j_n,start_x,start_y,start_z,GUID=joint_guid)
                     self.m_joints_dict[start_coord]=start_joint
+                    
                 end_x,end_y,end_z=rs.CurveEndPoint(objectId)
                 end_coord=(end_x,end_y,end_z)
                 if self.m_joints_dict.has_key(end_coord):
                     end_joint=self.m_joints_dict[end_coord]
                 else:
                     #如果是从s2k中导入的，就使用原来的编号
-                    if(rs.GetDocumentData("s2k_Joint_original_number","(%.11f,%.11f,%.11f)"%(end_x,end_y,end_z))):
-                        j_n=rs.GetDocumentData("s2k_Joint_original_number","(%.11f,%.11f,%.11f)"%(end_x,end_y,end_z))
+                    joint_guid=""
+                    if rs.GetUserText(objectId,"end_point_guid"):
+                        if rs.GetUserText(rs.GetUserText(objectId,"end_point_guid"),"s2k_original_number"):
+                            j_n=int(rs.GetUserText(rs.GetUserText(objectId,"end_point_guid"),"s2k_original_number"))
+                            joint_guid=rs.GetUserText(objectId,"end_point_guid")
+                        else:
+                            max_j_n+=1
+                            j_n=max_j_n
+                    #if(rs.GetDocumentData("s2k_Joint_original_number","(%.11f,%.11f,%.11f)"%(end_x,end_y,end_z))):
+                        #j_n=rs.GetDocumentData("s2k_Joint_original_number","(%.11f,%.11f,%.11f)"%(end_x,end_y,end_z))
+                       
                     #否则使用新编号，最大编号加一
                     else:
                         max_j_n+=1
                         j_n=max_j_n
-                    end_joint=Joint(j_n,end_x,end_y,end_z)
+                    end_joint=Joint(j_n,end_x,end_y,end_z,GUID=joint_guid)
                     self.m_joints_dict[end_coord]=end_joint
                 # 将杆件存入列表
                 if(rs.GetUserText(objectId,"s2k_original_number")):
                     f_n=rs.GetUserText(objectId,"s2k_original_number")
+                elif(rs.GetUserText(objectId,"mgt_original_number")):
+                    f_n=rs.GetUserText(objectId,"mgt_original_number")
                 else:
                     max_f_n+=1
                     f_n=max_f_n
@@ -163,42 +413,90 @@ class ModelInfo:
                 self.m_frames.append(frame)
                 self.m_joints_dict[start_coord].m_Frames.append(frame)
                 self.m_joints_dict[end_coord].m_Frames.append(frame)
+                #判断是否有s2k section属性，如果没有，将layer name作为section name存入
+                if (rs.GetUserText(objectId,"s2k_section_layer_name") is None) or (rs.GetUserText(objectId,"s2k_section_layer_name")!=rs.ObjectLayer(objectId)):
+                    sec_nm=rs.ObjectLayer(objectId)
+                    rs.SetUserText(objectId,"TABLE:  \"FRAME SECTION ASSIGNMENTS\"\n","   Frame=%s   AutoSelect=N.A.   AnalSect=%s   MatProp=Default\n"%(f_n,sec_nm))
+                    rs.SetDocumentData("TABLE:  \"FRAME SECTION PROPERTIES 01 - GENERAL\"\n","   SectionName=%s   Shape=\"I/Wide Flange\"   Color=Red\n"%sec_nm,"   SectionName=%s   Shape=\"I/Wide Flange\"   Color=Red\n"%sec_nm)
+                
             #如果类型为8（Surface）
             elif rs.ObjectType(objectId)==8:
                 area_joints=[]
                 points=rs.SurfacePoints(objectId)
-                if(len(points)>4)|(len(points)<3):
-                    continue
-                elif (len(points)==3):
-                    for pt in points:
-                        x,y,z=pt
-                        coord=(x,y,z)
-                        if self.m_joints_dict.has_key(coord):
-                            area_joints.append(self.m_joints_dict[coord])
-                        else:
-                            if(rs.GetDocumentData("s2k_Joint_original_number","(%.11f,%.11f,%.11f)"%(x,y,z))):
-                                j_n=rs.GetDocumentData("s2k_Joint_original_number","(%.11f,%.11f,%.11f)"%(x,y,z))
-                            else:
-                                max_j_n+=1
-                                j_n=max_j_n
-                            tmp_j=Joint(j_n,x,y,z)
-                            self.m_joints_dict[coord]=tmp_j
-                            area_joints.append(tmp_j)
-                else:
-                    for i in [0,1,3,2]:
+                #if(len(points)>4)|(len(points)<3):
+                    #continue
+                #elif (len(points)==3):
+                    #for pt in points:
+                        #x,y,z=pt
+                        #coord=(x,y,z)
+                        #if self.m_joints_dict.has_key(coord):
+                            #area_joints.append(self.m_joints_dict[coord])
+                        #else:
+                            #if(rs.GetDocumentData("s2k_Joint_original_number","(%.11f,%.11f,%.11f)"%(x,y,z))):
+                                #j_n=rs.GetDocumentData("s2k_Joint_original_number","(%.11f,%.11f,%.11f)"%(x,y,z))
+                            #else:
+                                #max_j_n+=1
+                                #j_n=max_j_n
+                            #tmp_j=Joint(j_n,x,y,z)
+                            #self.m_joints_dict[coord]=tmp_j
+                            #area_joints.append(tmp_j)
+                            
+                if rs.GetUserText(objectId,"point_guids"):
+                    pt_guid_list=rs.GetUserText(objectId,"point_guids").split(",")
+                    tmp_index=[0,2,1]
+                    if len(pt_guid_list)==4:
+                        tmp_index=[0,2,3,1]
+                        
+                    for i in tmp_index:
                         x,y,z=points[i]
                         coord=(x,y,z)
                         if self.m_joints_dict.has_key(coord):
-                            area_joints.append(self.m_joints_dict[coord])
+                            if self.m_joints_dict[coord] not in area_joints:
+                                area_joints.append(self.m_joints_dict[coord])
                         else:
-                            if(rs.GetDocumentData("s2k_Joint_original_number","(%.11f,%.11f,%.11f)"%(x,y,z))):
-                                j_n=rs.GetDocumentData("s2k_Joint_original_number","(%.11f,%.11f,%.11f)"%(x,y,z))
+                            joint_guid=""
+                            if rs.GetUserText(pt_guid_list[i],"s2k_original_number"):
+                                j_n=int(rs.GetUserText(pt_guid_list[i],"s2k_original_number"))
+                                joint_guid=pt_guid_list[i]
                             else:
                                 max_j_n+=1
                                 j_n=max_j_n
+                            tmp_j=Joint(j_n,x,y,z,GUID=joint_guid)
+                            self.m_joints_dict[coord]=tmp_j
+                            if tmp_j not in area_joints:
+                                area_joints.append(tmp_j)
+                #如果面对象中没有存节点对应点对象GUID，则需要新分配节点编号
+                else:
+                    for i in range(len(points)):
+                        x,y,z=points[i]
+                        coord=(x,y,z)
+                        if self.m_joints_dict.has_key(coord):
+                            if self.m_joints_dict[coord] not in area_joints:
+                                area_joints.append(self.m_joints_dict[coord])
+                        else:
+                            max_j_n+=1
+                            j_n=max_j_n
                             tmp_j=Joint(j_n,x,y,z)
                             self.m_joints_dict[coord]=tmp_j
-                            area_joints.append(tmp_j)
+                            if tmp_j not in area_joints:
+                                area_joints.append(tmp_j)
+                #else:
+                    #for i in [0,1,3,2]:
+                        #x,y,z=points[i]
+                        #coord=(x,y,z)
+                        #if self.m_joints_dict.has_key(coord):
+                            #area_joints.append(self.m_joints_dict[coord])
+                        #else:
+                            #if(rs.GetDocumentData("s2k_Joint_original_number","(%.11f,%.11f,%.11f)"%(x,y,z))):
+                                #j_n=rs.GetDocumentData("s2k_Joint_original_number","(%.11f,%.11f,%.11f)"%(x,y,z))
+                            #else:
+                                #max_j_n+=1
+                                #j_n=max_j_n
+                            #tmp_j=Joint(j_n,x,y,z)
+                            #self.m_joints_dict[coord]=tmp_j
+                            #area_joints.append(tmp_j)
+                            
+
                 if(rs.GetUserText(objectId,"s2k_original_number")):
                     a_n=rs.GetUserText(objectId,"s2k_original_number")
                 else:
@@ -207,21 +505,34 @@ class ModelInfo:
                 j_c=len(area_joints)
                 area=Area(a_n,j_c,area_joints,objectId)
                 self.m_areas.append(area)
+                #判断是否有section属性，如果没有，将layer name作为section name存入
+                if rs.GetUserText(objectId,"TABLE:  \"AREA SECTION ASSIGNMENTS\"\n") is None:
+                    sec_nm=rs.ObjectLayer(objectId)
+                    rs.SetUserText(objectId,"TABLE:  \"AREA SECTION ASSIGNMENTS\"\n","   Area=%s   Section=%s   MatProp=Default\n"%(a_n,sec_nm))
+                    rs.SetDocumentData("TABLE:  \"AREA SECTION PROPERTIES\"\n","   SectionName=%s   AreaType=Shell   Color=Green\n"%sec_nm,"   SectionName=%s   AreaType=Shell   Color=Green\n"%sec_nm)
+            
         #读取documentdata中存下来的表名
+        if(rs.GetDocumentData("s2k_joint_table_names")):
+            self.m_s2k_joint_table_names=rs.GetDocumentData("s2k_joint_table_names")
         if(rs.GetDocumentData("s2k_frame_table_names")):
+            rs.SetDocumentData("s2k_frame_table_names","TABLE:  \"FRAME SECTION ASSIGNMENTS\"\n","TABLE:  \"FRAME SECTION ASSIGNMENTS\"\n")
             self.m_s2k_frame_table_names=rs.GetDocumentData("s2k_frame_table_names")
         if(rs.GetDocumentData("s2k_area_table_names")):
+            rs.SetDocumentData("s2k_area_table_names","TABLE:  \"AREA SECTION ASSIGNMENTS\"\n","TABLE:  \"AREA SECTION ASSIGNMENTS\"\n")
             self.m_s2k_area_table_names=rs.GetDocumentData("s2k_area_table_names")
-        if(rs.GetDocumentData("mgt_obj_table_names")):
-            self.m_mgt_obj_table_names=rs.GetDocumentData("mgt_obj_table_names")
+        #if(rs.GetDocumentData("mgt_obj_table_names")):
+            #self.m_mgt_obj_table_names=rs.GetDocumentData("mgt_obj_table_names")
         if(rs.GetDocumentData("s2k_docu_table_names")):
+            rs.SetDocumentData("s2k_docu_table_names","TABLE:  \"AREA SECTION PROPERTIES\"\n","TABLE:  \"AREA SECTION PROPERTIES\"\n")
+            rs.SetDocumentData("s2k_docu_table_names","TABLE:  \"FRAME SECTION PROPERTIES 01 - GENERAL\"\n","TABLE:  \"FRAME SECTION PROPERTIES 01 - GENERAL\"\n")
             self.m_s2k_docu_table_names=rs.GetDocumentData("s2k_docu_table_names")
-        if(rs.GetDocumentData("mgt_docu_table_names")):
-            self.m_mgt_docu_table_names=rs.GetDocumentData("mgt_docu_table_names")
+        #if(rs.GetDocumentData("mgt_docu_table_names")):
+            #self.m_mgt_docu_table_names=rs.GetDocumentData("mgt_docu_table_names")
+        #print("Frame_Count=%s"%len(self.m_frames))
         return
-     
+    
     def export_s2k(self):
-        self.set_data()
+        self.set_data_s2k()
         #prompt the user to specify a file name
         filter = "s2k File (*.s2k)|*.s2k|All files (*.*)|*.*||"
         filename = rs.SaveFileName("Save model Points As", filter)
@@ -290,6 +601,26 @@ class ModelInfo:
             file.write("\n")
         file.write("\n")
         
+        for nm in self.m_s2k_joint_table_names:
+            file.write(nm)
+            #print(nm)
+            for jt_coord in self.m_joints_dict:
+                jt=self.m_joints_dict[jt_coord]
+                if jt.m_GUID=="":
+                    continue
+                if rs.GetUserText(jt.m_GUID,nm) is None:
+                    continue
+                #print(rs.GetUserText(fm.m_GUID,nm))
+                str_tmp=rs.GetUserText(jt.m_GUID,nm)
+                l=str_tmp.split()
+                res=re.search("Joint=",str_tmp)
+                if (len(l)<1) | (res is None):
+                    continue
+                a=str(jt.m_number)
+                file.write(str_tmp[:res.end()]+a+str_tmp[res.end()+len(l[0])-6:])
+            file.write("\n")
+            
+            
         for nm in self.m_s2k_frame_table_names:
             file.write(nm)
             #print(nm)
@@ -324,11 +655,12 @@ class ModelInfo:
         file.write("END TABLE DATA")
         #close the file
         file.close()
-        print(self.m_s2k_frame_table_names)
-        print("\n")
-        print(self.m_s2k_area_table_names)
-        print("\n")
-        print(self.m_s2k_docu_table_names)
+        #print(self.m_s2k_frame_table_names)
+        #print("\n")
+        #print(self.m_s2k_area_table_names)
+        #print("\n")
+        #print(self.m_s2k_docu_table_names)
+        print("导出s2k文件完成！")
     
     def import_s2k(self):
         #prompt the user for a file to import
@@ -342,6 +674,7 @@ class ModelInfo:
         joint_coordinates=[]
         connectivity_frame=[]
         connectivity_area=[]
+        joint_text={}
         frame_text={}
         area_text={}
         #frame_section_assignments=[]
@@ -373,17 +706,29 @@ class ModelInfo:
                     table="TABLE:  \"JOINT COORDINATES\"\n"
                     continue
                 #table CONNECTIVITY - FRAME
-                if (len(ls)>=3) and (ls[1]=="\"CONNECTIVITY") and (ls[2]=="-") and (ls[3]=="FRAME\""):
+                if (len(ls)>=4) and (ls[1]=="\"CONNECTIVITY") and (ls[2]=="-") and (ls[3]=="FRAME\""):
                     table="TABLE:  \"CONNECTIVITY - FRAME\"\n"
                     continue
                 #table CONNECTIVITY - AREA
-                if (len(ls)>=3) and (ls[1]=="\"CONNECTIVITY") and (ls[2]=="-") and (ls[3]=="FRAME\""):
+                if (len(ls)>=4) and (ls[1]=="\"CONNECTIVITY") and (ls[2]=="-") and (ls[3]=="FRAME\""):
                     table="TABLE:  \"CONNECTIVITY - AREA\"\n"
                     continue
-                #其他表格
-                else:
-                    table=whole_line
+                #section表，用于分配图层
+                #TABLE:  "FRAME SECTION ASSIGNMENTS"
+                if (len(ls)>=4) and (ls[1]=="\"FRAME") and (ls[2]=="SECTION") and (ls[3]=="ASSIGNMENTS\""):
+                    table="TABLE:  \"FRAME SECTION ASSIGNMENTS\"\n"
                     continue
+                if (len(ls)>=4) and (ls[1]=="\"AREA") and (ls[2]=="SECTION") and (ls[3]=="ASSIGNMENTS\""):
+                    table="TABLE:  \"AREA SECTION ASSIGNMENTS\"\n"
+                    continue
+                #group表
+                if (len(ls)>=2) and (ls[1]=="\"GROUPS") and (ls[-1]=="ASSIGNMENTS\""):
+                    table="TABLE:  \"GROUPS 2 - ASSIGNMENTS\"\n"
+                    continue
+                    
+                #其他表格
+                table=whole_line
+                continue
             
             #如果不是表名行
             else:
@@ -401,29 +746,36 @@ class ModelInfo:
                 #是其他表数据，下面判断是document data还是object text
                 else:
                     tmp=ls[0].split("=")
+                    #是跟随每个Joint的text，存入一个中间结构joint_text
+                    if len(tmp)>=2 and tmp[0]=="Joint":
+                        if not joint_text.has_key(table):
+                            tmp_dic={}
+                            joint_text[table]=tmp_dic
+                            rs.SetDocumentData("s2k_joint_table_names",str(table),str(table))
+                        joint_text[table][tmp[1]]=whole_line
                     #是跟随每个Frame的text，存入一个中间结构frame_text
-                    if len(tmp)>=2 and tmp[0]=="Frame":
+                    elif len(tmp)>=2 and tmp[0]=="Frame":
                         if not frame_text.has_key(table):
                             tmp_dic={}
                             frame_text[table]=tmp_dic
-                            rs.SetDocumentData("s2k_frame_table_names",str(table)," ")
+                            rs.SetDocumentData("s2k_frame_table_names",str(table),str(table))
                         frame_text[table][tmp[1]]=whole_line
                     #是跟随每个Area的text，存入一个中间结构area_text
                     elif len(tmp)>=2 and tmp[0]=="Area":
                         if not area_text.has_key(table):
                             tmp_dic={}
                             area_text[table]=tmp_dic
-                            rs.SetDocumentData("s2k_area_table_names",str(table)," ")
+                            rs.SetDocumentData("s2k_area_table_names",str(table),str(table))
                         area_text[table][tmp[1]]=whole_line
                             
                     #是document data 直接存
                     else:
                         if (table!="TABLE:  \"PROGRAM CONTROL\"\n"):
-                            rs.SetDocumentData("s2k_docu_table_names",str(table)," ")
-                        rs.SetDocumentData(table,whole_line," ")
+                            rs.SetDocumentData("s2k_docu_table_names",str(table),str(table))
+                        rs.SetDocumentData(table,whole_line,ls[0])
         file.close()
     
-        joints_dict={} #以编号为key，以坐标元组为value
+        joints_dict={} #以编号为key，以GUID为value
         frames_dict={} #以编号为key，以GUID为value
         areas_dict={}  #以编号为key，以GUID为value
         #生成joints_dict
@@ -438,8 +790,7 @@ class ModelInfo:
                 l=j.split("=")
                 if (len(l)==2) and l[0]=="Joint":
                     number=l[1]
-                    if(int(number)>int(max_number)):
-                        max_number=number
+                    max_number=max(int(number),max_number)
                 elif (len(l)==2) and l[0]=="XorR":
                     X=float(l[1])
                 elif (len(l)==2) and l[0]=="Y":
@@ -447,8 +798,13 @@ class ModelInfo:
                 elif (len(l)==2) and l[0]=="Z":
                     Z=float(l[1])
             if number!=-1:
-                joints_dict[number]=(X,Y,Z)
-                rs.SetDocumentData("s2k_Joint_original_number","(%.11f,%.11f,%.11f)"%(X,Y,Z),number)
+                obj_pt=rs.AddPoint((X,Y,Z))
+                joints_dict[number]=obj_pt
+                rs.SetUserText(obj_pt,"s2k_original_number",str(number))
+                #rs.SetDocumentData("s2k_Joint_original_number","(%.11f,%.11f,%.11f)"%(X,Y,Z),number)
+                for tb_nm in joint_text.keys():
+                    if(joint_text[tb_nm].has_key(number)):
+                        rs.SetUserText(obj_pt,tb_nm,joint_text[tb_nm][number])
         rs.SetDocumentData("s2k_Joint_original_number","max_number",str(max_number))
         #生成frames_dict
         #print(len(connectivity_frame))
@@ -476,10 +832,20 @@ class ModelInfo:
             if (jointi!=-1) and (jointj!=-1) and (frame_n!=-1):
                 obj=rs.AddLine(jointi,jointj)
                 rs.SetUserText(obj,"s2k_original_number",frame_n)
+                rs.SetUserText(obj,"start_point_guid",jointi)
+                rs.SetUserText(obj,"end_point_guid",jointj)
                 frames_dict[frame_n]=obj
                 for tb_nm in frame_text.keys():
                     if(frame_text[tb_nm].has_key(frame_n)):
                         rs.SetUserText(obj,tb_nm,frame_text[tb_nm][frame_n])
+                        #使用section进行图层分类
+                        if tb_nm=="TABLE:  \"FRAME SECTION ASSIGNMENTS\"\n":
+                            for i in frame_text[tb_nm][frame_n].split():
+                                if i.split("=")[0]=="AnalSect":
+                                    rs.AddLayer(i.split("=")[1])
+                                    rs.ObjectLayer(obj,i.split("=")[1])
+                                    rs.SetUserText(obj,"s2k_section_layer_name",i.split("=")[1])
+                                    break
         rs.SetDocumentData("s2k_Frame_original_number","max_number",str(max_f_n))
         #生成areas_dict
         max_a_n=0
@@ -499,16 +865,30 @@ class ModelInfo:
                         continue
             if len(points)>=3 and (area_n!=-1):
                 obj=rs.AddSrfPt(points)
+                #将点对象guid存成一个字符串，按0，-1，1，2顺序存储
+                tmp_str=str(points[0])+","+str(points[-1])+","+str(points[1])
+                if len(points)>=4:
+                    tmp_str=tmp_str+","+str(points[2])
+                rs.SetUserText(obj,"point_guids",tmp_str)
                 rs.SetUserText(obj,"s2k_original_number",area_n)
                 areas_dict[area_n]=obj
                 for tb_nm in area_text.keys():
                     if(area_text[tb_nm].has_key(area_n)):
                         rs.SetUserText(obj,tb_nm,area_text[tb_nm][area_n])
+                        #使用section进行图层分类
+                        if tb_nm=="TABLE:  \"AREA SECTION ASSIGNMENTS\"\n":
+                            for i in area_text[tb_nm][area_n].split():
+                                if i.split("=")[0]=="Section":
+                                    rs.AddLayer(i.split("=")[1])
+                                    rs.ObjectLayer(obj,i.split("=")[1])
+                                    rs.SetUserText(obj,"s2k_section_layer_name",i.split("=")[1])
+                                    break
         rs.SetDocumentData("s2k_Area_original_number","max_number",str(max_a_n))
+        print("从s2k文件中导入完成！")
         
     def export_mgt(self):
         "Export to a mgt text file"
-        self.set_data()
+        self.set_data_mgt()
         #prompt the user to specify a file name
         filter = "MGT File (*.mgt)|*.mgt|All files (*.*)|*.*||"
         filename = rs.SaveFileName("Save model As", filter)
@@ -516,13 +896,6 @@ class ModelInfo:
     
         #open a new file
         file = open( filename, "w")
-        #document data中的表格
-        for nm in self.m_mgt_docu_table_names:
-            if(rs.GetDocumentData(nm)):
-                file.write(nm)
-                for entry in rs.GetDocumentData(nm):
-                    file.write(entry)
-                file.write("\n")
 
         # Nodes
         file.write("*NODE    ; Nodes\n")
@@ -538,6 +911,16 @@ class ModelInfo:
         file.write("; iEL, TYPE, iMAT, iPRO, iN1, iN2, ANGLE, iSUB, EXVAL, EXVAL2, bLMT ; Comp/Tens Truss\n")
         file.write("; iEL, TYPE, iMAT, iPRO, iN1, iN2, iN3, iN4, iSUB, iWID , LCAXIS    ; Planar Element\n")
         file.write("; iEL, TYPE, iMAT, iPRO, iN1, iN2, iN3, iN4, iN5, iN6, iN7, iN8     ; Solid  Element\n")
+                
+        max_section_number=0
+        max_thickness_number=0
+        new_section_dict={}  #key为layer name，value为ipro编号
+        new_thickness_dict={}
+        if rs.GetDocumentData("mgt_info","max_section_number"):
+            max_section_number=int(rs.GetDocumentData("mgt_info","max_section_number"))
+        if rs.GetDocumentData("mgt_info","max_thickness_number"):
+            max_thickness_number=int(rs.GetDocumentData("mgt_info","max_thickness_number"))
+            
         for frame in self.m_frames:
             if rs.GetUserText(frame.m_GUID,"mgt_element") is not None:
                 str_tmp=rs.GetUserText(frame.m_GUID,"mgt_element")
@@ -549,22 +932,48 @@ class ModelInfo:
                     ls[1]=" TRUSS "
                     if rs.GetUserText(frame.m_GUID,"mgt_type") is not None:
                         ls[1]=rs.GetUserText(frame.m_GUID,"mgt_type")
+                    
+                    layer_name=rs.ObjectLayer(frame.m_GUID)
+                    if re.search("mgt_section",layer_name) is not None:
+                        tmp_layer_n=int(layer_name.replace("mgt_section",""))
+                        ls[3]="   %s"%(tmp_layer_n)
+                        #max_section_number=max(tmp_layer_n,max_section_number)
+                    else:
+                        if new_section_dict.has_key(layer_name):
+                            ls[3]="   %s"%(new_section_dict[layer_name])
+                        else:
+                            max_section_number+=1
+                            ls[3]="   %s"%max_section_number
+                            new_section_dict[layer_name]=max_section_number
                 for i in range(len(ls)):
                     file.write(ls[i])
                     if(i!=len(ls)-1):
                         file.write(",")
             else:
-                file.write("  %s, TRUSS ,    1,     1,   %s,   %s,     0,     0"%(frame.m_number,frame.m_start_joint.m_number,frame.m_end_joint.m_number))
+                layer_name=rs.ObjectLayer(frame.m_GUID)
+                if re.search("mgt_section",layer_name) is not None:
+                    tmp_layer_n=int(layer_name.replace("mgt_section",""))
+                    #max_section_number=max(tmp_layer_n,max_section_number)
+                else:
+                    if new_section_dict.has_key(layer_name):
+                        tmp_layer_n=new_section_dict[layer_name]
+                    else:
+                        max_section_number+=1
+                        tmp_layer_n=max_section_number
+                        new_section_dict[layer_name]=tmp_layer_n
+                file.write("  %s, TRUSS ,    1,     %s,   %s,   %s,     0,     0"%(frame.m_number,tmp_layer_n,frame.m_start_joint.m_number,frame.m_end_joint.m_number))
             file.write("\n")
+        #frame_count=len(self.m_frames)
+        
         for area in self.m_areas:
             if rs.GetUserText(area.m_GUID,"mgt_element") is not None:
                 str_tmp=rs.GetUserText(area.m_GUID,"mgt_element")
             else:
-                str_tmp="  1471, PLATE ,    1,     1,   298,   278,   304,     0,     0,     0"
-                ls=str_tmp.split(",")
+                str_tmp="  1471, PLATE ,    1,     1,   298,   278,   304,     0,     1,     0"
             
+            ls=str_tmp.split(",")
             if (len(ls)>=8) & (len(area.m_joints)>=3):
-                ls[0]="  %s"%area.m_number
+                ls[0]="  %s"%(area.m_number)
                 ls[4]="   %s"%area.m_joints[0].m_number
                 ls[5]="   %s"%area.m_joints[1].m_number
                 ls[6]="   %s"%area.m_joints[2].m_number
@@ -575,19 +984,39 @@ class ModelInfo:
                 ls[1]=" PLATE "
                 if rs.GetUserText(area.m_GUID,"mgt_type") is not None:
                     ls[1]=rs.GetUserText(area.m_GUID,"mgt_type")
-                    
+                
+                layer_name=rs.ObjectLayer(area.m_GUID)
+                if re.search("mgt_thickness",layer_name,) is not None:
+                    tmp_layer_n=int(layer_name.replace("mgt_thickness",""))
+                    ls[3]="   %s"%(tmp_layer_n)
+                else:
+                    if new_thickness_dict.has_key(layer_name):
+                        ls[3]="   %s"%(new_thickness_dict[layer_name])
+                    else:
+                        max_thickness_number+=1
+                        ls[3]="   %s"%max_thickness_number
+                        new_thickness_dict[layer_name]=max_thickness_number
+                            
             for i in range(len(ls)):
                 file.write(ls[i])
                 if(i!=len(ls)-1):
                     file.write(",")
             file.write("\n")
         file.write("\n")
-    
+        
+        #document data中的表格
+        for nm in self.m_mgt_docu_table_names:
+            if rs.GetDocumentData(nm):
+                file.write(rs.GetDocumentData("mgt_docu_table_names",nm))
+                for entry in rs.GetDocumentData(nm):
+                    file.write(rs.GetDocumentData(nm,entry))
+                file.write("\n")
         # EndData
         file.write("*ENDDATA\n")
     
         # Close File
         file.close()
+        print("导出mgt文件完成！")
         
     def import_mgt(self):
         #prompt the user for a file to import
@@ -597,13 +1026,17 @@ class ModelInfo:
     
         #read each line from the file
         file = open(filename, "r")
-        
+        #type=chardet.detect(file.read())
+        #print(type)
         table=""
-        joints_dict={} #以编号为key，以坐标元组为value
+        joints_dict={} #以编号为key，生成point对象后以point的GUID为value
         frames=[] #中间存储形式,TRUSS BEAM TENSTR COMPTR都存
         frames_dict={}#以编号为key，以GUID为value，TRUSS BEAM TENSTR COMPTR都存
         planars=[]
         planars_dict={}
+        line_index=0
+        table_index=0
+        max_node_number=0
         for line in file:
             #去掉“;”后的注释部分
             ls=line.split(";")
@@ -618,20 +1051,34 @@ class ModelInfo:
                     table="ELEMENT"
                 elif re.search("\\*ENDDATA",str_tmp) is not None:
                     break
+                #elif re.search("\\*K-FACTOR",str_tmp) is not None:
+                    #table=""
+                #elif re.search("\\*CONSTRAINT",str_tmp) is not None:
+                    #table=""
+                #elif re.search("\\*FLOORLOAD",str_tmp) is not None:
+                    #table=""
+                #elif re.search("\\*REBAR-MATL-CODE",str_tmp) is not None:
+                    #table=""
                 else:
                     table=line
+                    table_index+=1
+                    line_index=0
                 continue
                 
             #如果当前行不是表名行
             #生成joints_dict和frames
             #将document data直接存入
+            max_node_number=0
             if table=="":
                 continue
             elif table=="NODE":
                 str_tmp.replace(" ","")
                 ls=str_tmp.split(",")
                 if len(ls)>=4:
-                    joints_dict[int(ls[0])]=(float(ls[1]),float(ls[2]),float(ls[3]))
+                    obj_pt=rs.AddPoint((float(ls[1]),float(ls[2]),float(ls[3])))
+                    joints_dict[int(ls[0])]=obj_pt
+                    rs.SetUserText(obj_pt,"mgt_original_number",ls[0])
+                    max_node_number=max(int(ls[0]),max_node_number)
             elif table=="ELEMENT":
                 ls=str_tmp.split(",")
                 if (len(ls)>=6) and (ls[1].replace(" ","")=="TRUSS" or ls[1].replace(" ","")=="BEAM" or ls[1].replace(" ","")=="TENSTR" or ls[1].replace(" ","")=="COMPTR"):
@@ -639,19 +1086,34 @@ class ModelInfo:
                 elif (len(ls)>=8) and (ls[1].replace(" ","")=="PLATE" or ls[1].replace(" ","")=="PLSTRS" or ls[1].replace(" ","")=="PLSTRN" or ls[1].replace(" ","")=="AXISYM"):
                     planars.append(line)
             else:
-                rs.SetDocumentData("mgt_docu_table_names",table," ")
-                rs.SetDocumentData(table,line," ")
+                line_index+=1
+                rs.SetDocumentData("mgt_docu_table_names","mgt_docu_table"+str(table_index),table)
+                rs.SetDocumentData("mgt_docu_table"+str(table_index),str(line_index),line)
+        
+        #将max_node_number存入Document Data
+        rs.SetDocumentData("mgt_Node_original_number","max_number",str(max_node_number))
 
         file.close()
         #生成frames_dict和planars_dict并在rhino中生成模型
+        max_section_number=0
+        max_thickness_number=0
+        max_element_number=0
         for text in frames:
             ls=text.split(",")
             if len(ls)<6: continue
             if joints_dict.has_key(int(ls[4])) and joints_dict.has_key(int(ls[5])):
                 obj=rs.AddLine(joints_dict[int(ls[4])],joints_dict[int(ls[5])])
+                layer_name=rs.AddLayer("mgt_section%d"%int(ls[3]))
+                rs.ObjectLayer(obj,layer_name)
+                max_section_number=max(int(ls[3]),max_section_number)
                 rs.SetUserText(obj,"mgt_element",text)
                 rs.SetUserText(obj,"mgt_type",ls[1])#ls[1]带空格
+                rs.SetUserText(obj,"mgt_original_number",ls[0])
+                #将节点对应点对象的GUID存入杆件对象的UserText中
+                rs.SetUserText(obj,"start_point_guid",joints_dict[int(ls[4])])
+                rs.SetUserText(obj,"end_point_guid",joints_dict[int(ls[5])])
                 frames_dict[int(ls[0])]=obj
+                max_element_number=max(int(ls[0]),max_element_number)
         for text in planars:
             ls=text.split(",")
             if len(ls)<8: continue
@@ -660,18 +1122,82 @@ class ModelInfo:
                 tmp_pts.append(joints_dict[int(ls[4])])
                 tmp_pts.append(joints_dict[int(ls[5])])
                 tmp_pts.append(joints_dict[int(ls[6])])
+                #将面对象的节点对应所有点对象的GUID存成一个字符串，以“，”分隔，顺序为pt1-pt3-pt2
+                tmp_pts_guids=joints_dict[int(ls[4])]+","+joints_dict[int(ls[6])]+","+joints_dict[int(ls[5])]
+                
                 if int(ls[7])!=0 & joints_dict.has_key(int(ls[7])):
                     tmp_pts.append(joints_dict[int(ls[7])])
+                    #若有4个点，顺序为pt1-pt4-pt2-pt3
+                    tmp_pts_guids=joints_dict[int(ls[4])]+","+joints_dict[int(ls[7])]+","+joints_dict[int(ls[5])]+","+joints_dict[int(ls[6])]
                     
                 obj=rs.AddSrfPt(tmp_pts)
+                layer_name=rs.AddLayer("mgt_thickness%d"%int(ls[3]))
+                rs.ObjectLayer(obj,layer_name)
+                max_thickness_number=max(int(ls[3]),max_thickness_number)
                 rs.SetUserText(obj,"mgt_element",text)
                 rs.SetUserText(obj,"mgt_type",ls[1])#ls[1]带空格
+                rs.SetUserText(obj,"mgt_original_number",ls[0])
+                rs.SetUserText(obj,"point_guids",tmp_pts_guids)#将面对象的节点对应所有点对象的GUID字符串存入面对象的UserText中
                 planars_dict[int(ls[0])]=obj
+                max_element_number=max(int(ls[0]),max_element_number)
+        rs.SetDocumentData("mgt_info","max_section_number",str(max_section_number))
+        rs.SetDocumentData("mgt_info","max_thickness_number",str(max_section_number))
+        rs.SetDocumentData("mgt_Element_original_number","max_number",str(max_element_number))
+        print("从mgt文件导入完成！")
+    
+    def get_max_min_angle(self):
+        if (self.m_joints_dict is None) or (self.m_frames is None):return
+        
+        max_angle=0
+        max_joint=self.m_frames[0].m_start_joint
+        max_frame1=self.m_frames[0]
+        max_frame2=self.m_frames[0]
+        min_angle=180
+        min_joint=self.m_frames[0].m_start_joint
+        min_frame1=self.m_frames[0]
+        min_frame2=self.m_frames[0]
+        for coord in self.m_joints_dict:
+            tmp_max_angle,tmp_max_f1,tmp_max_f2,tmp_min_angle,tmp_min_f1,tmp_min_f2=self.m_joints_dict[coord].cal_max_min_frame_angle()
+            if tmp_max_angle>max_angle:
+                max_angle=tmp_max_angle
+                max_joint=self.m_joints_dict[coord]
+                max_frame1=tmp_max_f1
+                max_frame2=tmp_max_f2
+            if tmp_min_angle<min_angle:
+                min_angle=tmp_min_angle
+                min_joint=self.m_joints_dict[coord]
+                min_frame1=tmp_min_f1
+                min_frame2=tmp_min_f2
+        return max_angle,max_joint,max_frame1,max_frame2,min_angle,min_joint,min_frame1,min_frame2
+
+    def get_max_frame_length(self):
+        if (self.m_joints_dict is None) or (self.m_frames is None):return
+        
+        max_length=self.m_frames[0].m_Length
+        longest_frame=self.m_frames[0]
+        for frame in self.m_frames:
+            if frame.m_Length>max_length:
+                max_length=frame.m_Length
+                longest_frame=frame
+        return max_length,longest_frame
+
+    def display_grid_info(self):
+        self.set_data()
+        max_angle,max_joint,max_frame1,max_frame2,min_angle,min_joint,min_frame1,min_frame2=self.get_max_min_angle()
+        max_length,longest_frame=self.get_max_frame_length()
+    
+        form=DisplayGridInfoForm(max_angle,min_angle,max_length)
+        if( form.ShowDialog() == DialogResult.OK ):
+            rhinoscript.geometry.AddTextDot("最大杆件夹角=%s"%max_angle, (max_joint.m_X,max_joint.m_Y,max_joint.m_Z))
+            rhinoscript.geometry.AddTextDot("最小杆件夹角=%s"%min_angle, (min_joint.m_X,min_joint.m_Y,min_joint.m_Z))
+    
             
 if( __name__ == "__main__" ):
     model=ModelInfo()
     
     #model.import_s2k()
-    #model.export_s2k()
+    model.export_s2k()
     #model.import_mgt()
-    model.export_mgt()
+    #model.export_mgt()
+    
+    #model.display_grid_info()
