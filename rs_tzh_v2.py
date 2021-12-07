@@ -1,11 +1,13 @@
 #encoding=utf-8
 import rhinoscriptsyntax as rs
-from System.Windows.Forms import Form, DialogResult, Label, Button, TextBox
-from System.Drawing import Point, Size
-import rhinoscript.selection
+from System.Windows.Forms import *
+from System.Drawing import *
+from System.Threading import ThreadStart, Thread
+#import rhinoscript.selection
 import rhinoscript.geometry
 import re
 import sys
+import time
 
 reload(sys)
 
@@ -129,45 +131,33 @@ class DisplayGridInfoForm(Form):
         self.ClientSize = Size(width, buttonCancel.Bottom)
         self.AcceptButton = buttonApply
         self.CancelButton = buttonCancel
-        
-class DisplayObjectInfoForm(Form):
-    # build all of the controls in the constructor
-    def __init__(self,obj):
-        offset = 10
-        self.Text = "UserText"
-        
-        max_angle_label = Label(Text="相邻杆件最大夹角 = %s"%max_angle, AutoSize=True)
-        self.Controls.Add(max_angle_label)
-        width = max_angle_label.Right
-        pt = Point(max_angle_label.Left,max_angle_label.Bottom + offset)
-    
-        min_angle_label = Label(Text="相邻杆件最小夹角 = %s"%min_angle, AutoSize=True)
-        min_angle_label.Location=pt
-        self.Controls.Add(min_angle_label)
-        if( min_angle_label.Right > width ):
-            width = min_angle_label.Right
-        pt = Point(min_angle_label.Left,min_angle_label.Bottom + offset)
-    
-        max_length_label = Label(Text="最长杆件长度 = %s"%max_length, AutoSize=True)
-        max_length_label.Location=pt
-        self.Controls.Add(max_length_label)
-        if( max_length_label.Right > width ):
-            width = max_length_label.Right
-        pt = Point(max_length_label.Left,max_length_label.Bottom + offset)
-    
-        buttonApply = Button(Text="显示节点", DialogResult=DialogResult.OK)
-        buttonApply.Location = pt
-        self.Controls.Add(buttonApply)
-        pt.X = buttonApply.Right + offset
-        buttonCancel = Button(Text="取消", DialogResult=DialogResult.Cancel)
-        buttonCancel.Location = pt
-        self.Controls.Add(buttonCancel)
-        if( buttonCancel.Right > width ):
-            width = buttonCancel.Right
-        self.ClientSize = Size(width, buttonCancel.Bottom)
-        self.AcceptButton = buttonApply
-        self.CancelButton = buttonCancel
 
+        
+class ProgressBarForm(Form):
+    def __init__(self,label,max_step):
+        self.offset = 10
+        self.Text = "Progress Bar"
+
+        self.task_label=Label(Text=label, AutoSize=True) #label为任务名称：可定义为“导出mgt文件”“导出s2k文件”
+        self.Controls.Add(self.task_label)
+        width = self.task_label.Right
+        pt = Point(self.task_label.Left,self.task_label.Bottom + self.offset)
+        
+        self.pbar=ProgressBar(Maximum=max_step,Visible=True,Step=1,Value=0)
+        self.pbar.Location=pt
+        self.pbar.Size=Size(800,20)
+        self.Controls.Add(self.pbar)
+        
+        if( self.pbar.Right > width ):
+            width = self.pbar.Right
+            
+        self.ClientSize = Size(width, self.pbar.Bottom)
+        self.invoker=MethodInvoker(self.update)
+    
+    def update(self):
+        self.pbar.PerformStep()
+        
+        
 class ModelInfo:
     def __init__(self):
         #构件数据：object data
@@ -183,6 +173,12 @@ class ModelInfo:
         self.m_mgt_obj_table_names=[]#mgt中每根杆件对应的属性表名
         self.m_s2k_docu_table_names=[]#s2k中其他属性表名
         self.m_mgt_docu_table_names=[]#mgt中其他属性表名
+        
+        self.form=None
+        
+    def pbar_thread(self):
+        self.form.Show()
+        Application.Run(self.form)
         
     def set_data_mgt(self):
         objectIds = rs.GetObjects("Select")
@@ -532,11 +528,18 @@ class ModelInfo:
         return
     
     def export_s2k(self):
+        #set data
         self.set_data_s2k()
         #prompt the user to specify a file name
         filter = "s2k File (*.s2k)|*.s2k|All files (*.*)|*.*||"
         filename = rs.SaveFileName("Save model Points As", filter)
         if not filename: return
+        
+        #进度条窗口类
+        self.form=ProgressBarForm("导出s2k文件中",8)
+        th=Thread(ThreadStart(self.pbar_thread))
+        th.IsBackground=True
+        th.Start()
     
         #open a new file
         file = open( filename, "w" )
@@ -552,6 +555,7 @@ class ModelInfo:
         else:
             file.write("   ProgramName=SAP2000   Version=21.0.2   ProgLevel=Ultimate   LicenseNum=0   LicenseOS=Yes   LicenseSC=Yes   LicenseHT=No   CurrUnits=\"KN, m, C\"   SteelCode=\"Chinese 2010\"   ConcCode=\"Chinese 2010\"   AlumCode=\"AA-ASD 2000\"   ColdCode=AISI-ASD96   RegenHinge=Yes")
         file.write("\n")
+        self.form.Invoke(self.form.invoker)
         
         for nm in self.m_s2k_docu_table_names:
             if(rs.GetDocumentData(nm)):
@@ -559,8 +563,11 @@ class ModelInfo:
                 for entry in rs.GetDocumentData(nm):
                     file.write(entry)
                 file.write("\n")
-                
-        #以下两张为特殊表格
+        
+        self.form.Invoke(self.form.invoker)
+        
+        
+        #以下3张为特殊表格
         #table JOINT COORDINATES
         file.write("TABLE:  \"JOINT COORDINATES\"\n")
         for coord in self.m_joints_dict:
@@ -574,7 +581,7 @@ class ModelInfo:
             file.write("   GUID=")
             file.write("\n")
         file.write("\n")
-    
+        self.form.Invoke(self.form.invoker)
         #table CONNECTIVITY - FRAME
         file.write("TABLE:  \"CONNECTIVITY - FRAME\"\n")
         print("joints_count=%s"%len(self.m_joints_dict))
@@ -588,7 +595,7 @@ class ModelInfo:
             file.write("   GUID=%s"%frame.m_GUID)
             file.write("\n")
         file.write("\n")
-        
+        self.form.Invoke(self.form.invoker)
         #table CONNECTIVITY - AREA
         file.write("TABLE:  \"CONNECTIVITY - AREA\"\n")
         for area in self.m_areas:
@@ -600,6 +607,8 @@ class ModelInfo:
             file.write("   CentroidX=%s   CentroidY=%s   CentroidZ=%s   GUID=%s"%(area.m_CentroidX,area.m_CentroidY,area.m_CentroidZ,area.m_GUID))
             file.write("\n")
         file.write("\n")
+        self.form.Invoke(self.form.invoker)
+        #form.pbar.PerformStep()
         
         for nm in self.m_s2k_joint_table_names:
             file.write(nm)
@@ -619,7 +628,7 @@ class ModelInfo:
                 a=str(jt.m_number)
                 file.write(str_tmp[:res.end()]+a+str_tmp[res.end()+len(l[0])-6:])
             file.write("\n")
-            
+        self.form.Invoke(self.form.invoker)
             
         for nm in self.m_s2k_frame_table_names:
             file.write(nm)
@@ -636,6 +645,7 @@ class ModelInfo:
                 a=str(fm.m_number)
                 file.write(str_tmp[:res.end()]+a+str_tmp[res.end()+len(l[0])-6:])
             file.write("\n")
+        self.form.Invoke(self.form.invoker)
         
         for nm in self.m_s2k_area_table_names:
             file.write(nm)
@@ -651,10 +661,11 @@ class ModelInfo:
                 a=str(ar.m_number)
                 file.write(str_tmp[:res.end()]+a+str_tmp[res.end()+len(l[0])-5:])
             file.write("\n")
-        
+        self.form.Invoke(self.form.invoker)
         file.write("END TABLE DATA")
         #close the file
         file.close()
+        self.form.Close()
         #print(self.m_s2k_frame_table_names)
         #print("\n")
         #print(self.m_s2k_area_table_names)
@@ -667,7 +678,12 @@ class ModelInfo:
         filter = "s2k file (*.s2k)|*.s2k|All Files (*.*)|*.*||"
         filename = rs.OpenFileName("Open Point File", filter)
         if not filename: return
-    
+        
+        self.form = ProgressBarForm("导入s2k文件中", 4)
+        t = Thread(ThreadStart(self.pbar_thread))
+        t.IsBackground = True
+        t.Start()
+        
         #read each line from the file
         file = open(filename, "r")
         table=""
@@ -774,6 +790,7 @@ class ModelInfo:
                             rs.SetDocumentData("s2k_docu_table_names",str(table),str(table))
                         rs.SetDocumentData(table,whole_line,ls[0])
         file.close()
+        self.form.Invoke(self.form.invoker)
     
         joints_dict={} #以编号为key，以GUID为value
         frames_dict={} #以编号为key，以GUID为value
@@ -809,6 +826,8 @@ class ModelInfo:
         #生成frames_dict
         #print(len(connectivity_frame))
         max_f_n=0
+        self.form.Invoke(self.form.invoker)
+        
         for i in connectivity_frame:
             jointi=-1
             jointj=-1
@@ -847,6 +866,7 @@ class ModelInfo:
                                     rs.SetUserText(obj,"s2k_section_layer_name",i.split("=")[1])
                                     break
         rs.SetDocumentData("s2k_Frame_original_number","max_number",str(max_f_n))
+        self.form.Invoke(self.form.invoker)
         #生成areas_dict
         max_a_n=0
         for i in connectivity_area:
@@ -884,6 +904,8 @@ class ModelInfo:
                                     rs.SetUserText(obj,"s2k_section_layer_name",i.split("=")[1])
                                     break
         rs.SetDocumentData("s2k_Area_original_number","max_number",str(max_a_n))
+        self.form.Invoke(self.form.invoker)
+        self.form.Close()
         print("从s2k文件中导入完成！")
         
     def export_mgt(self):
@@ -893,10 +915,32 @@ class ModelInfo:
         filter = "MGT File (*.mgt)|*.mgt|All files (*.*)|*.*||"
         filename = rs.SaveFileName("Save model As", filter)
         if not filename: return
-    
+        
+        self.form=ProgressBarForm("导出mgt文件中",4)
+        th=Thread(ThreadStart(self.pbar_thread))
+        th.IsBackground=True
+        th.Start()
+        
+        #form=ProgressBarForm("导出mgt文件中")
+        
         #open a new file
         file = open( filename, "w")
-
+        
+        #document data中的表格
+        front_table_count=0
+        if rs.GetDocumentData("mgt_info","front_table_count"):
+            front_table_count=int(rs.GetDocumentData("mgt_info","front_table_count"))
+            
+        for i in range(front_table_count):
+            nm="mgt_docu_table"+str(i+1)
+            if rs.GetDocumentData(nm):
+                file.write(rs.GetDocumentData("mgt_docu_table_names",nm))
+                for entry in rs.GetDocumentData(nm):
+                    file.write(rs.GetDocumentData(nm,entry))
+                file.write("\n")
+        self.form.Invoke(self.form.invoker)
+        #form.bar_adjust(10)
+        
         # Nodes
         file.write("*NODE    ; Nodes\n")
         file.write("; iNO, X, Y, Z\n")
@@ -904,7 +948,9 @@ class ModelInfo:
             joint=self.m_joints_dict[coord]
             file.write("     %s, %s, %s, %s\n"%(joint.m_number,joint.m_X,joint.m_Y,joint.m_Z))
         file.write("\n")
-    
+        self.form.Invoke(self.form.invoker)
+        #form.bar_adjust(20)
+        
         # Elements
         file.write("*ELEMENT    ; Elements\n")
         file.write("; iEL, TYPE, iMAT, iPRO, iN1, iN2, ANGLE, iSUB, EXVAL, iOPT(EXVAL2) ; Frame  Element\n")
@@ -961,26 +1007,31 @@ class ModelInfo:
                         max_section_number+=1
                         tmp_layer_n=max_section_number
                         new_section_dict[layer_name]=tmp_layer_n
-                file.write("  %s, TRUSS ,    1,     %s,   %s,   %s,     0,     0"%(frame.m_number,tmp_layer_n,frame.m_start_joint.m_number,frame.m_end_joint.m_number))
-            file.write("\n")
+                file.write("  %s, TRUSS ,    1,     %s,   %s,   %s,     0,     0\n"%(frame.m_number,tmp_layer_n,frame.m_start_joint.m_number,frame.m_end_joint.m_number))
+            #file.write("\n")
         #frame_count=len(self.m_frames)
         
         for area in self.m_areas:
             if rs.GetUserText(area.m_GUID,"mgt_element") is not None:
                 str_tmp=rs.GetUserText(area.m_GUID,"mgt_element")
             else:
-                str_tmp="  1471, PLATE ,    1,     1,   298,   278,   304,     0,     1,     0"
+                str_tmp="  1471, PLATE ,    1,     1,   298,   278,   304,     0,     1,     0\n"
             
             ls=str_tmp.split(",")
             if (len(ls)>=8) & (len(area.m_joints)>=3):
                 ls[0]="  %s"%(area.m_number)
-                ls[4]="   %s"%area.m_joints[0].m_number
-                ls[5]="   %s"%area.m_joints[1].m_number
-                ls[6]="   %s"%area.m_joints[2].m_number
                 if len(area.m_joints)==3:
+                    #根据mgt输出要求的顺序输出
+                    ls[4]="   %s"%area.m_joints[0].m_number
+                    ls[5]="   %s"%area.m_joints[2].m_number
+                    ls[6]="   %s"%area.m_joints[1].m_number
                     ls[7]="   0"
                 else:
-                    ls[7]="   %s"%area.m_joints[3].m_number
+                    #根据mgt输出要求的顺序输出
+                    ls[4]="   %s"%area.m_joints[0].m_number
+                    ls[5]="   %s"%area.m_joints[2].m_number
+                    ls[6]="   %s"%area.m_joints[3].m_number
+                    ls[7]="   %s"%area.m_joints[1].m_number
                 ls[1]=" PLATE "
                 if rs.GetUserText(area.m_GUID,"mgt_type") is not None:
                     ls[1]=rs.GetUserText(area.m_GUID,"mgt_type")
@@ -1001,21 +1052,28 @@ class ModelInfo:
                 file.write(ls[i])
                 if(i!=len(ls)-1):
                     file.write(",")
-            file.write("\n")
+            #file.write("\n")
         file.write("\n")
-        
+        #form.bar_adjust(40)
+        self.form.Invoke(self.form.invoker)
         #document data中的表格
         for nm in self.m_mgt_docu_table_names:
+            if int(nm.replace("mgt_docu_table",""))-1 in range(front_table_count):
+            #if nm=="mgt_docu_table1" or nm=="mgt_docu_table2" or nm=="mgt_docu_table3" or nm=="mgt_docu_table4":
+                continue
             if rs.GetDocumentData(nm):
                 file.write(rs.GetDocumentData("mgt_docu_table_names",nm))
                 for entry in rs.GetDocumentData(nm):
                     file.write(rs.GetDocumentData(nm,entry))
                 file.write("\n")
+        #form.bar_adjust(60)
+        self.form.Invoke(self.form.invoker)
         # EndData
         file.write("*ENDDATA\n")
     
         # Close File
         file.close()
+        self.form.Close()
         print("导出mgt文件完成！")
         
     def import_mgt(self):
@@ -1023,7 +1081,12 @@ class ModelInfo:
         filter = "mgt file (*.mgt)|*.mgt|All Files (*.*)|*.*||"
         filename = rs.OpenFileName("Open MGT File", filter)
         if not filename: return
-    
+        
+        self.form=ProgressBarForm("导入mgt文件中",4)
+        th=Thread(ThreadStart(self.pbar_thread))
+        th.IsBackground=True
+        th.Start()
+        
         #read each line from the file
         file = open(filename, "r")
         #type=chardet.detect(file.read())
@@ -1035,7 +1098,8 @@ class ModelInfo:
         planars=[]
         planars_dict={}
         line_index=0
-        table_index=0
+        table_index=0  #从1开始
+        front_table_index=0 #在*Node之前的表的数量
         max_node_number=0
         for line in file:
             #去掉“;”后的注释部分
@@ -1047,6 +1111,7 @@ class ModelInfo:
                 table=""
                 if re.search("\\*NODE",str_tmp) is not None:
                     table="NODE"
+                    front_table_index=table_index
                 elif re.search("\\*ELEMENT",str_tmp) is not None:
                     table="ELEMENT"
                 elif re.search("\\*ENDDATA",str_tmp) is not None:
@@ -1083,7 +1148,7 @@ class ModelInfo:
                 ls=str_tmp.split(",")
                 if (len(ls)>=6) and (ls[1].replace(" ","")=="TRUSS" or ls[1].replace(" ","")=="BEAM" or ls[1].replace(" ","")=="TENSTR" or ls[1].replace(" ","")=="COMPTR"):
                     frames.append(line)
-                elif (len(ls)>=8) and (ls[1].replace(" ","")=="PLATE" or ls[1].replace(" ","")=="PLSTRS" or ls[1].replace(" ","")=="PLSTRN" or ls[1].replace(" ","")=="AXISYM"):
+                elif (len(ls)>=8) and (ls[1].replace(" ","")=="PLATE" or ls[1].replace(" ","")=="PLSTRS" or ls[1].replace(" ","")=="PLSTRN" or ls[1].replace(" ","")=="AXISYM" or ls[1].replace(" ","")=="WALL"):
                     planars.append(line)
             else:
                 line_index+=1
@@ -1092,8 +1157,14 @@ class ModelInfo:
         
         #将max_node_number存入Document Data
         rs.SetDocumentData("mgt_Node_original_number","max_number",str(max_node_number))
-
+        #将*Node表格前的表格数量存入Document Data
+        rs.SetDocumentData("mgt_info","front_table_count",str(front_table_index))
+        
         file.close()
+        
+        self.form.Invoke(self.form.invoker)
+        #form.pbar.PerformStep()
+
         #生成frames_dict和planars_dict并在rhino中生成模型
         max_section_number=0
         max_thickness_number=0
@@ -1112,8 +1183,11 @@ class ModelInfo:
                 #将节点对应点对象的GUID存入杆件对象的UserText中
                 rs.SetUserText(obj,"start_point_guid",joints_dict[int(ls[4])])
                 rs.SetUserText(obj,"end_point_guid",joints_dict[int(ls[5])])
-                frames_dict[int(ls[0])]=obj
+                #frames_dict[int(ls[0])]=obj
                 max_element_number=max(int(ls[0]),max_element_number)
+        #form.pbar.PerformStep()
+        self.form.Invoke(self.form.invoker)
+        
         for text in planars:
             ls=text.split(",")
             if len(ls)<8: continue
@@ -1123,12 +1197,12 @@ class ModelInfo:
                 tmp_pts.append(joints_dict[int(ls[5])])
                 tmp_pts.append(joints_dict[int(ls[6])])
                 #将面对象的节点对应所有点对象的GUID存成一个字符串，以“，”分隔，顺序为pt1-pt3-pt2
-                tmp_pts_guids=joints_dict[int(ls[4])]+","+joints_dict[int(ls[6])]+","+joints_dict[int(ls[5])]
+                tmp_pts_guids=str(joints_dict[int(ls[4])])+","+str(joints_dict[int(ls[6])])+","+str(joints_dict[int(ls[5])])
                 
                 if int(ls[7])!=0 & joints_dict.has_key(int(ls[7])):
                     tmp_pts.append(joints_dict[int(ls[7])])
                     #若有4个点，顺序为pt1-pt4-pt2-pt3
-                    tmp_pts_guids=joints_dict[int(ls[4])]+","+joints_dict[int(ls[7])]+","+joints_dict[int(ls[5])]+","+joints_dict[int(ls[6])]
+                    tmp_pts_guids=str(joints_dict[int(ls[4])])+","+str(joints_dict[int(ls[7])])+","+str(joints_dict[int(ls[5])])+","+str(joints_dict[int(ls[6])])
                     
                 obj=rs.AddSrfPt(tmp_pts)
                 layer_name=rs.AddLayer("mgt_thickness%d"%int(ls[3]))
@@ -1138,11 +1212,15 @@ class ModelInfo:
                 rs.SetUserText(obj,"mgt_type",ls[1])#ls[1]带空格
                 rs.SetUserText(obj,"mgt_original_number",ls[0])
                 rs.SetUserText(obj,"point_guids",tmp_pts_guids)#将面对象的节点对应所有点对象的GUID字符串存入面对象的UserText中
-                planars_dict[int(ls[0])]=obj
+                #planars_dict[int(ls[0])]=obj
                 max_element_number=max(int(ls[0]),max_element_number)
+        #form.pbar.PerformStep()
+        self.form.Invoke(self.form.invoker)
+
         rs.SetDocumentData("mgt_info","max_section_number",str(max_section_number))
         rs.SetDocumentData("mgt_info","max_thickness_number",str(max_section_number))
         rs.SetDocumentData("mgt_Element_original_number","max_number",str(max_element_number))
+        self.form.Close()
         print("从mgt文件导入完成！")
     
     def get_max_min_angle(self):
@@ -1182,7 +1260,7 @@ class ModelInfo:
         return max_length,longest_frame
 
     def display_grid_info(self):
-        self.set_data()
+        self.set_data_s2k()
         max_angle,max_joint,max_frame1,max_frame2,min_angle,min_joint,min_frame1,min_frame2=self.get_max_min_angle()
         max_length,longest_frame=self.get_max_frame_length()
     
@@ -1201,3 +1279,6 @@ if( __name__ == "__main__" ):
     #model.export_mgt()
     
     #model.display_grid_info()
+    
+    
+    
